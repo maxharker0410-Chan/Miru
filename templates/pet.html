@@ -456,6 +456,9 @@ var _modelBoundsBottom = 0;
 var _modelBoundsLeft = 0;
 var _modelBoundsRight = 0;
 var _characterFacade = null;
+var _characterConversation = null;
+var _chatRevision = 0;
+var _emotionPollPending = false;
 var _petCanvasResizeHandler = null;
 
 var PET_REF_W = 420;
@@ -910,7 +913,10 @@ async function _mountCharacter() {
       document.getElementById('pet-canvas-wrap'),
       { renderer: 'live2d', modelId: BUNDLED_MODEL_ID }
     );
-    if (mounted) _pollModelBounds();
+    if (mounted) {
+      _pollModelBounds();
+      _characterConversation = window.MiruCharacterAdapter.createConversationController(_characterFacade);
+    }
     return mounted;
   } catch(e) {
     console.warn('[pet] Character unavailable; text chat remains usable:', e);
@@ -1017,6 +1023,8 @@ async function petSend() {
   // arrives via the history poll, or (c) the deadline elapses (LLM stuck).
   // 15s is generous because the user's API host can be slow.
   _backendTyping = true;
+  _chatRevision++;
+  if (_characterConversation) _characterConversation.thinking();
   _optimisticTypingDeadline = Date.now() + 15000;
 
   // Fire-and-forget — same async path as index.html
@@ -1030,6 +1038,8 @@ async function petSend() {
       body: JSON.stringify({ text: text })
     });
     if (!res.ok) {
+      _chatRevision++;
+      if (_characterConversation) _characterConversation.failed();
       _backendTyping = false;  // request rejected — don't strand thinking dots
       _optimisticTypingDeadline = 0;  // close window so poll can take over
       var err = await res.json().catch(function() { return {}; });
@@ -1037,6 +1047,8 @@ async function petSend() {
       _updateCaption(); _scheduleAutoCollapse();
     }
   } catch(e) {
+    if (_characterConversation) _characterConversation.failed();
+    _chatRevision++;
     _backendTyping = false;  // network error — don't strand thinking dots
     _optimisticTypingDeadline = 0;  // close window so poll can take over
     _latestMessage = { role: 'assistant', text: 'Error: ' + e.message };
@@ -1081,10 +1093,12 @@ function _showUserCaption(text) {
 // ── Unified polling — purely driven by backend state ──
 
 function _pollChat() {
+  var revision = _chatRevision;
   // 1) Poll typing status — always, not gated by any frontend flag
   fetch('/api/chat/typing', { cache: 'no-store' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
+      if (revision !== _chatRevision) return;
       var newTyping = !!d.typing;
       var inOptimistic = Date.now() < _optimisticTypingDeadline;
 
@@ -1105,6 +1119,10 @@ function _pollChat() {
       if (newTyping) {
         _optimisticTypingDeadline = 0;
       }
+      if (_characterConversation) {
+        if (newTyping && !wasTyping) _characterConversation.thinking();
+        else if (!newTyping) _characterConversation.typingEnded();
+      }
       if (_backendTyping !== wasTyping) _updateCaption();
     }).catch(function() {});
 
@@ -1112,6 +1130,7 @@ function _pollChat() {
   fetch('/api/chat/history?limit=3', { cache: 'no-store' })
     .then(function(r) { return r.json(); })
     .then(function(data) {
+      if (revision !== _chatRevision) return;
       var msgs = data.messages || data;
       if (!Array.isArray(msgs) || !msgs.length) return;
 
@@ -1133,9 +1152,12 @@ function _pollChat() {
       // (otherwise the lock would keep displaying "thinking..." until the
       // 15s deadline elapses, hiding the actual response).
       _lastSeenMsgId = newId;
+      _chatRevision++;
       _latestMessage = lastAssistant;
       _backendTyping = false;
       _optimisticTypingDeadline = 0;
+
+      if (_characterConversation) _characterConversation.reply(lastAssistant.text || lastAssistant.content || '');
 
       _updateCaption();
       _updateSendBtn();
@@ -1148,6 +1170,16 @@ function _pollChat() {
       _scheduleAutoCollapse();
     })
     .catch(function() {});
+}
+
+function _pollCharacterEmotion() {
+  if (!_characterConversation || _emotionPollPending) return;
+  _emotionPollPending = true;
+  fetch('/api/miru-emotion/current', { cache: 'no-store' })
+    .then(function(r) { if (!r.ok) throw new Error('Emotion unavailable'); return r.json(); })
+    .then(function(data) { _characterConversation.emotion(data); })
+    .catch(function() {})
+    .finally(function() { _emotionPollPending = false; });
 }
 
 // Recalculate .pet-caption max-height based on available viewport space
@@ -1943,6 +1975,13 @@ async function _petInit() {
   // Poll chat — detect ALL new messages (replies, proactive attention messages, reminders, etc.)
   // Fast poll (1.5s) when backend is typing, normal poll (5s) otherwise
   var _lastPollTime = 0;
+  _pollCharacterEmotion();
+  var emotionTimer = setInterval(_pollCharacterEmotion, 15000);
+  window.addEventListener('pagehide', function(event) {
+    if (event.persisted) return; // bfcache resumes the existing controller
+    clearInterval(emotionTimer);
+    if (_characterConversation) _characterConversation.dispose();
+  });
   setInterval(function() {
     var now = Date.now();
     var interval = _backendTyping ? 1500 : 5000;

@@ -91,6 +91,16 @@ renderer-neutral and converted inside each adapter.
 
 ## Event mapping
 
+The initial event bridge now sends `thinking` on message submission, `talking`
+on a newly detected assistant reply, and `idle` on request failure or timeout.
+Because the pet receives complete messages through polling, `talking` currently
+lasts 1.5–8 seconds based on text length; this is not audio synchronization.
+Thinking has a 120-second watchdog that repeated polls cannot extend.
+Emotion is read from `/api/miru-emotion/current` every 15 seconds, independently
+of conversation state. Sleeping takes priority over conversation events.
+The existing Live2D adapter still has no mapped state motions or expressions;
+these events prepare the contract for later renderer implementations.
+
 | Miru event | Character action |
 |---|---|
 | User sends a message | `thinking` |

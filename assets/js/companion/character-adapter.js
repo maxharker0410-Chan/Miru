@@ -189,9 +189,65 @@
     return Object.freeze(facade);
   }
 
+  // Conversation events are independent of renderer motions and audio playback.
+  function createConversationController(facade, options) {
+    options = options || {};
+    var schedule = options.setTimeout || setTimeout;
+    var cancel = options.clearTimeout || clearTimeout;
+    var timer = null;
+    var generation = 0;
+    var disposed = false;
+    var current = 'idle';
+    var lastEmotion = '';
+
+    function transition(next, duration) {
+      if (disposed) return;
+      generation++;
+      if (timer !== null) cancel(timer);
+      timer = null;
+      current = next;
+      // Sleep remains authoritative even when a conversation event arrives.
+      if (facade.getState() !== 'sleeping') facade.setState(next);
+      if (duration) {
+        var token = generation;
+        timer = schedule(function() {
+          if (!disposed && token === generation) transition('idle');
+        }, duration);
+      }
+    }
+
+    return {
+      thinking: function() {
+        // Repeated backend polls must not extend the watchdog indefinitely.
+        if (current !== 'thinking') transition('thinking', 120000);
+      },
+      typingEnded: function() {
+        if (current === 'thinking') transition('idle');
+      },
+      reply: function(text) {
+        var duration = Math.max(1500, Math.min(8000, String(text || '').length * 60));
+        transition('talking', duration);
+      },
+      failed: function() { transition('idle'); },
+      emotion: function(data) {
+        if (disposed || !data || !data.current || typeof data.current.mood !== 'string') return;
+        var mood = data.current.mood.trim();
+        if (mood && mood !== lastEmotion) {
+          lastEmotion = mood;
+          facade.setEmotion(mood, 1);
+        }
+      },
+      dispose: function() {
+        transition('idle');
+        disposed = true;
+      }
+    };
+  }
+
   return Object.freeze({
     states: Object.freeze(STATES.slice()),
     normalizeState: normalizeState,
-    createFacade: createFacade
+    createFacade: createFacade,
+    createConversationController: createConversationController
   });
 });

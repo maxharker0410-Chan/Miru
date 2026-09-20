@@ -116,3 +116,85 @@ def test_character_adapter_has_no_capture_permissions():
     assert "getUserMedia" not in source
     assert "getDisplayMedia" not in source
     assert "mediaDevices" not in source
+
+
+def test_conversation_events_timeouts_sleep_and_disposal():
+    data = _run_node(r"""
+const assert = require('node:assert/strict');
+const api = require('./assets/js/companion/character-adapter.js');
+(async () => {
+  const facade = api.createFacade({id:'fake', mount:async()=>{}, setState:async()=>{}, setEmotion:async()=>{}});
+  await facade.mount({});
+  const timers = new Map(); let sequence = 0;
+  const controller = api.createConversationController(facade, {
+    setTimeout: (callback, duration) => { timers.set(++sequence, {callback, duration}); return sequence; },
+    clearTimeout: id => timers.delete(id),
+  });
+  controller.thinking();
+  assert.equal(facade.getState(), 'thinking');
+  const watchdog = [...timers.values()][0];
+  controller.thinking();
+  assert.equal(sequence, 1);
+  assert.equal(watchdog.duration, 120000);
+  controller.reply('Hello');
+  assert.equal(facade.getState(), 'talking');
+  watchdog.callback(); // stale timer cannot end a newer reply
+  assert.equal(facade.getState(), 'talking');
+  controller.typingEnded(); // late typing=false cannot truncate a reply
+  assert.equal(facade.getState(), 'talking');
+  controller.emotion({current:{mood:'happy'}});
+  assert.equal(facade.getEmotion(), 'happy');
+  assert.equal(facade.getState(), 'talking');
+  [...timers.values()][0].callback();
+  assert.equal(facade.getState(), 'idle');
+  controller.thinking();
+  [...timers.values()][0].callback();
+  assert.equal(facade.getState(), 'idle');
+  controller.thinking(); controller.failed();
+  assert.equal(facade.getState(), 'idle');
+  assert.equal(timers.size, 0);
+  await facade.setState('sleeping');
+  controller.thinking(); controller.reply('hi'); controller.failed();
+  assert.equal(facade.getState(), 'sleeping');
+  controller.dispose(); controller.thinking(); controller.emotion({current:{mood:'sad'}});
+  assert.equal(timers.size, 0);
+  assert.equal(facade.getEmotion(), 'happy');
+  console.log(JSON.stringify({ok:true}));
+})();
+""")
+    assert data == {"ok": True}
+
+
+def test_pet_poll_routes_reply_and_ignores_stale_typing_response():
+    data = _run_node(r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const html = fs.readFileSync('templates/pet.html', 'utf8');
+const source = html.slice(html.indexOf('function _pollChat()'), html.indexOf('function _pollCharacterEmotion()'));
+const pending = {}; const events = [];
+const context = {
+  _chatRevision: 0, _optimisticTypingDeadline: 0, _backendTyping: true,
+  _lastSeenMsgId: 'old', _panelExpanded: true,
+  _characterConversation: {reply:t=>events.push(['reply',t]),thinking:()=>events.push(['thinking']),typingEnded:()=>events.push(['idle'])},
+  _updateCaption:()=>{}, _updateSendBtn:()=>{}, _scheduleAutoCollapse:()=>{},
+  fetch: url=>new Promise(resolve=>{pending[url]=resolve;}),
+};
+vm.createContext(context); vm.runInContext(source, context);
+const flush = ()=>new Promise(resolve=>setImmediate(resolve));
+(async()=>{
+  context._pollChat();
+  pending['/api/chat/history?limit=3']({json:async()=>({messages:[{id:'new',role:'assistant',text:'Hello'}]})});
+  await flush();
+  pending['/api/chat/typing']({json:async()=>({typing:true})});
+  await flush();
+  assert.deepEqual(events, [['reply','Hello']]);
+  assert.equal(context._backendTyping, false);
+  context._pollChat();
+  pending['/api/chat/history?limit=3']({json:async()=>({messages:[{id:'new',role:'assistant',text:'Hello'}]})});
+  await flush();
+  assert.equal(events.length, 1); // repeated history does not replay talking
+  console.log(JSON.stringify({ok:true}));
+})();
+""")
+    assert data == {"ok": True}
