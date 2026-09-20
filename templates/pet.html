@@ -376,6 +376,7 @@ html, body {
   </div>
 </div>
 
+<script src="/assets/js/companion/character-adapter.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════════
 //  ContextLife Pet — Lightweight vanilla-JS desktop pet
@@ -454,6 +455,8 @@ var _modelBoundsTop = 0;
 var _modelBoundsBottom = 0;
 var _modelBoundsLeft = 0;
 var _modelBoundsRight = 0;
+var _characterFacade = null;
+var _petCanvasResizeHandler = null;
 
 var PET_REF_W = 420;
 var PET_REF_H = 760;
@@ -683,11 +686,11 @@ function _updateFocus() {
 }
 
 // ── Create PIXI app + load model ──
-async function _initPetCanvas() {
+async function _initPetCanvas(host) {
   await _ensureLive2D();
   if (!window.PIXI || !PIXI.live2d) return;
 
-  var wrap = document.getElementById('pet-canvas-wrap');
+  var wrap = host || document.getElementById('pet-canvas-wrap');
   var w = window.innerWidth;
   var h = window.innerHeight;
 
@@ -714,13 +717,14 @@ async function _initPetCanvas() {
   _petApp.ticker.add(_updateFocus);
 
   // Handle resize
-  window.addEventListener('resize', function() {
+  _petCanvasResizeHandler = function() {
     if (!_petApp) return;
     var nw = window.innerWidth, nh = window.innerHeight;
     _petApp.renderer.resize(nw, nh);
     _applyCurrentLayout();
     _recapCaptionHeight();
-  });
+  };
+  window.addEventListener('resize', _petCanvasResizeHandler);
 }
 
 async function _loadModel(modelUrl, layout) {
@@ -812,6 +816,108 @@ async function _syncModel() {
   }
 }
 
+// ── Companion Character Adapter (Phase 1 facade) ──
+// The existing Live2D renderer remains the default.  Chat, memory, permissions,
+// and desktop-window behavior stay outside this adapter boundary.
+function _createExistingLive2DAdapter() {
+  return {
+    id: 'live2d-existing',
+    capabilities: {
+      motions: false,
+      expressions: false,
+      lipSync: false,
+      focusTracking: true,
+      transparentBackground: true
+    },
+
+    mount: async function(host) {
+      await _initPetCanvas(host);
+      await _syncModel();
+    },
+
+    unmount: async function() {
+      if (_petCanvasResizeHandler) {
+        window.removeEventListener('resize', _petCanvasResizeHandler);
+        _petCanvasResizeHandler = null;
+      }
+      if (_petApp && _petApp.ticker) {
+        try { _petApp.ticker.remove(_updateFocus); } catch(e) {}
+      }
+      if (_petModel && _petApp) {
+        try { _petApp.stage.removeChild(_petModel); _petModel.destroy(); } catch(e) {}
+      }
+      _petModel = null;
+      if (_petApp) {
+        try { _petApp.destroy(true, { children: true, texture: false, baseTexture: false }); } catch(e) {}
+      }
+      _petApp = null;
+      _lastModelId = '';
+    },
+
+    // State and emotion hooks are intentionally no-ops until generic state
+    // names are mapped to known motions/expressions.  Keeping them here makes
+    // the boundary real without changing the current model's behavior.
+    setState: async function() {},
+    setEmotion: async function() {},
+
+    lookAt: function(x, y) {
+      if (!_petModel) return;
+      _cursorX = _petModel.x + x * 300;
+      _cursorY = _petModel.y + y * 300;
+    },
+
+    resize: function(width, height, layout) {
+      if (!_petApp) return;
+      _petApp.renderer.resize(width, height);
+      if (layout && typeof layout.scale === 'number') _modelScale = layout.scale;
+      if (layout && typeof layout.x === 'number') _modelPosX = layout.x;
+      if (layout && typeof layout.y === 'number') _modelPosY = layout.y;
+      _applyCurrentLayout();
+    },
+
+    getBounds: function() {
+      if (!_petModel) return null;
+      var bounds = _petModel.getBounds();
+      return {
+        left: bounds.x,
+        top: bounds.y,
+        right: bounds.x + bounds.width,
+        bottom: bounds.y + bounds.height
+      };
+    }
+  };
+}
+
+function _getCharacterFacade() {
+  if (_characterFacade) return _characterFacade;
+  if (!window.MiruCharacterAdapter) {
+    throw new Error('Character Adapter facade failed to load.');
+  }
+  _characterFacade = window.MiruCharacterAdapter.createFacade(
+    _createExistingLive2DAdapter(),
+    {
+      onError: function(detail) {
+        console.warn('[pet] Character adapter ' + detail.action + ' failed:', detail.error);
+      }
+    }
+  );
+  return _characterFacade;
+}
+
+async function _mountCharacter() {
+  try {
+    var mounted = await _getCharacterFacade().mount(
+      document.getElementById('pet-canvas-wrap'),
+      { renderer: 'live2d', modelId: BUNDLED_MODEL_ID }
+    );
+    if (mounted) _pollModelBounds();
+    return mounted;
+  } catch(e) {
+    console.warn('[pet] Character unavailable; text chat remains usable:', e);
+    return false;
+  }
+}
+
 // ── Layout version polling (bundled mode: no-op) ──
 async function _pollLayoutVersion() {
   // Intentionally empty — layout is local, persisted via _saveLayout to localStorage.
@@ -836,11 +942,12 @@ function _pollModelBounds() {
   }
 
   // Use PIXI getBounds() for accurate screen-space bounds
-  var bounds = _petModel.getBounds();
-  _modelBoundsTop = bounds.y;
-  _modelBoundsBottom = bounds.y + bounds.height;
-  _modelBoundsLeft = bounds.x;
-  _modelBoundsRight = bounds.x + bounds.width;
+  var bounds = _characterFacade && _characterFacade.getBounds();
+  if (!bounds) return;
+  _modelBoundsTop = bounds.top;
+  _modelBoundsBottom = bounds.bottom;
+  _modelBoundsLeft = bounds.left;
+  _modelBoundsRight = bounds.right;
 
   // Position chat area above model head
   var pct = ((vh - _modelBoundsTop + 8) / vh) * 100;
@@ -1783,19 +1890,11 @@ async function _petInit() {
     });
   }
 
-  try {
-    await _initPetCanvas();
-    console.log('[pet] PIXI canvas created (dpr=' + (window.devicePixelRatio || 1) + ')');
-  } catch(e) {
-    console.error('[pet] Canvas init failed:', e);
-    return;
-  }
-
-  try {
-    await _syncModel();
-    console.log('[pet] Model synced');
-  } catch(e) {
-    console.error('[pet] Model sync failed:', e);
+  var characterMounted = await _mountCharacter();
+  if (characterMounted) {
+    console.log('[pet] Character mounted (dpr=' + (window.devicePixelRatio || 1) + ')');
+  } else {
+    console.warn('[pet] Character mount failed; continuing with text chat.');
   }
 
   // Register Tauri event listeners (after PIXI canvas exists)

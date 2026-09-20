@@ -2756,6 +2756,16 @@ def serve_android_lifecycle_shim():
     )
 
 
+@app.route("/assets/js/companion/<path:filename>")
+def serve_companion_js(filename):
+    """Serve renderer-neutral Companion UI modules from the app bundle."""
+    return send_from_directory(
+        os.path.join(_bundled_resource_root(), "assets", "js", "companion"),
+        filename,
+        mimetype="application/javascript",
+    )
+
+
 @app.route("/favicon.ico")
 def serve_favicon():
     return send_from_directory(
