@@ -339,6 +339,7 @@ html, body {
   <button onclick="petScaleWindow(1.1)" title="Larger">+</button>
   <span class="pet-bar-sep"></span>
   <button id="petLayoutBtn" onclick="petToggleLayoutEdit()" title="Adjust model position">&#8982;</button>
+  <button id="petCharacterBtn" onclick="petToggleCharacter()" title="切換圖片角色／Live2D">圖片</button>
   <span class="pet-bar-sep"></span>
   <button id="petScreenshotBtn" onclick="petToggleScreenshot()" title="Screenshot observation">&#128247;</button>
   <span class="pet-bar-sep"></span>
@@ -378,6 +379,7 @@ html, body {
 
 <script src="/assets/js/companion/character-adapter.js"></script>
 <script src="/assets/js/companion/live2d-motion-bridge.js"></script>
+<script src="/assets/js/companion/sprite-adapter.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════════
 //  ContextLife Pet — Lightweight vanilla-JS desktop pet
@@ -457,6 +459,8 @@ var _modelBoundsBottom = 0;
 var _modelBoundsLeft = 0;
 var _modelBoundsRight = 0;
 var _characterFacade = null;
+var _characterRenderer = 'live2d';
+var _characterSwitchBusy = false;
 var _characterConversation = null;
 var _chatRevision = 0;
 var _emotionPollPending = false;
@@ -662,6 +666,10 @@ function _applyLayout(model, scale, posX, posY, canvasW, canvasH, initW, initH) 
 }
 
 function _applyCurrentLayout() {
+  if (_characterRenderer === 'sprite' && _characterFacade) {
+    _characterFacade.resize(window.innerWidth,window.innerHeight,{scale:_modelScale,x:_modelPosX,y:_modelPosY});
+    return;
+  }
   if (!_petModel || !_petApp) return;
   var w = _petApp.screen.width;
   var h = _petApp.screen.height;
@@ -791,7 +799,7 @@ function _layoutStorageKey() {
   // When token is missing (very early boot) we fall back to a generic
   // "_anon" scope so we don't accidentally write into the prior user's slot.
   var scope = token ? token.slice(0, 12) : '_anon';
-  return 'miru_pet_layout_' + BUNDLED_MODEL_ID + '_' + scope;
+  return 'miru_pet_layout_' + (_characterRenderer === 'sprite' ? 'portrait-sprite' : BUNDLED_MODEL_ID) + '_' + scope;
 }
 
 function _loadLayoutFromStorage() {
@@ -908,7 +916,7 @@ function _getCharacterFacade() {
     throw new Error('Character Adapter facade failed to load.');
   }
   _characterFacade = window.MiruCharacterAdapter.createFacade(
-    _createExistingLive2DAdapter(),
+    _characterRenderer === 'sprite' ? window.MiruSpriteAdapter.create() : _createExistingLive2DAdapter(),
     {
       onError: function(detail) {
         console.warn('[pet] Character adapter ' + detail.action + ' failed:', detail.error);
@@ -920,9 +928,15 @@ function _getCharacterFacade() {
 
 async function _mountCharacter() {
   try {
+    var spriteLayout = null;
+    if (_characterRenderer === 'sprite') {
+      spriteLayout = _loadLayoutFromStorage() || {scale:1,x:0,y:0};
+      _modelScale = spriteLayout.scale; _modelPosX = spriteLayout.x; _modelPosY = spriteLayout.y;
+      _lastModelId = 'portrait-sprite';
+    }
     var mounted = await _getCharacterFacade().mount(
       document.getElementById('pet-canvas-wrap'),
-      { renderer: 'live2d', modelId: BUNDLED_MODEL_ID }
+      { renderer: _characterRenderer, modelId: BUNDLED_MODEL_ID, layout: spriteLayout }
     );
     if (mounted) {
       _pollModelBounds();
@@ -933,6 +947,30 @@ async function _mountCharacter() {
     console.warn('[pet] Character unavailable; text chat remains usable:', e);
     return false;
   }
+}
+
+async function petToggleCharacter() {
+  if (_characterSwitchBusy) return;
+  _characterSwitchBusy = true;
+  var btn = document.getElementById('petCharacterBtn');
+  btn.disabled = true;
+  try {
+    if (_layoutEditMode) _exitLayoutEdit();
+    if (_characterConversation) _characterConversation.dispose();
+    _characterConversation = null;
+    if (_characterFacade) await _characterFacade.unmount();
+    _characterFacade = null;
+    _characterRenderer = _characterRenderer === 'sprite' ? 'live2d' : 'sprite';
+    var ok = await _mountCharacter();
+    btn.textContent = _characterRenderer === 'sprite' ? 'Live2D' : '圖片';
+    if (ok) {
+      try { localStorage.setItem('miru.pet.renderer',_characterRenderer); } catch(e) {}
+      if (_backendTyping && _characterConversation) _characterConversation.thinking();
+      _pollCharacterEmotion();
+    } else {
+      btn.title = '角色載入失敗，可按此切回另一角色';
+    }
+  } finally { btn.disabled = false; _characterSwitchBusy = false; }
 }
 
 // ── Layout version polling (bundled mode: no-op) ──
@@ -948,7 +986,8 @@ function _pollModelBounds() {
   var dot = document.getElementById('petToolbarDot');
   var touchLayer = document.getElementById('petTouchLayer');
 
-  if (!_petModel || !_petApp) {
+  var bounds = _characterFacade && _characterFacade.getBounds();
+  if (!bounds) {
     // Fallback: use values from settings
     if (topArea) topArea.style.bottom = _settingsChatPosition + '%';
     var fallbackTb = _settingsToolbarPosition;
@@ -958,9 +997,7 @@ function _pollModelBounds() {
     return;
   }
 
-  // Use PIXI getBounds() for accurate screen-space bounds
-  var bounds = _characterFacade && _characterFacade.getBounds();
-  if (!bounds) return;
+  // Renderer-neutral screen-space bounds.
   _modelBoundsTop = bounds.top;
   _modelBoundsBottom = bounds.bottom;
   _modelBoundsLeft = bounds.left;
@@ -1754,7 +1791,7 @@ function _updatePassThrough(localX, localY, insideWindow) {
   var interactive = false;
 
   // Check model bounds (always active)
-  if (_petModel
+  if (_characterFacade && _characterFacade.isMounted()
     && localX >= _modelBoundsLeft && localX <= _modelBoundsRight
     && localY >= _modelBoundsTop && localY <= _modelBoundsBottom) {
     interactive = true;
@@ -1933,6 +1970,10 @@ async function _petInit() {
     });
   }
 
+  try {
+    if (localStorage.getItem('miru.pet.renderer') === 'sprite') _characterRenderer = 'sprite';
+  } catch(e) {}
+  document.getElementById('petCharacterBtn').textContent = _characterRenderer === 'sprite' ? 'Live2D' : '圖片';
   var characterMounted = await _mountCharacter();
   if (characterMounted) {
     console.log('[pet] Character mounted (dpr=' + (window.devicePixelRatio || 1) + ')');

@@ -2766,6 +2766,14 @@ def serve_companion_js(filename):
     )
 
 
+@app.route("/assets/companion/portrait/<path:filename>")
+def serve_companion_portrait(filename):
+    return send_from_directory(
+        os.path.join(_bundled_resource_root(), "assets", "companion", "portrait"),
+        filename,
+    )
+
+
 @app.route("/favicon.ico")
 def serve_favicon():
     return send_from_directory(
