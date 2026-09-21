@@ -98,8 +98,17 @@ lasts 1.5–8 seconds based on text length; this is not audio synchronization.
 Thinking has a 120-second watchdog that repeated polls cannot extend.
 Emotion is read from `/api/miru-emotion/current` every 15 seconds, independently
 of conversation state. Sleeping takes priority over conversation events.
-The existing Live2D adapter still has no mapped state motions or expressions;
-these events prepare the contract for later renderer implementations.
+The existing Live2D adapter now uses `live2d-motion-bridge.js` to resolve declared
+motion groups (Idle, Think/Thinking, Talk/Talking, Sleep/Sleeping, walking and
+emotion names) and named expressions. Matching is case-insensitive. Unknown
+states fall back to the declared Idle group; unknown emotions select Neutral
+or reset the expression. No numbered sample clip is guessed to mean an emotion.
+Motions declaring audio are skipped. Emotion intensity is not blended by this
+initial bridge. Model capabilities are refreshed after successful mounting.
+The repository does not include the installed Hiyori model: visible results
+depend on its actual named groups and require Windows validation.
+
+API reference: https://guansss.github.io/pixi-live2d-display/motions_expressions/
 
 | Miru event | Character action |
 |---|---|

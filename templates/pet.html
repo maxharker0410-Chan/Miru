@@ -377,6 +377,7 @@ html, body {
 </div>
 
 <script src="/assets/js/companion/character-adapter.js"></script>
+<script src="/assets/js/companion/live2d-motion-bridge.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════════
 //  ContextLife Pet — Lightweight vanilla-JS desktop pet
@@ -823,6 +824,7 @@ async function _syncModel() {
 // The existing Live2D renderer remains the default.  Chat, memory, permissions,
 // and desktop-window behavior stay outside this adapter boundary.
 function _createExistingLive2DAdapter() {
+  var motionBridge = null;
   return {
     id: 'live2d-existing',
     capabilities: {
@@ -836,9 +838,17 @@ function _createExistingLive2DAdapter() {
     mount: async function(host) {
       await _initPetCanvas(host);
       await _syncModel();
+      if (!_petModel) throw new Error('Live2D model did not load');
+      if (window.MiruLive2DMotionBridge) {
+        motionBridge = window.MiruLive2DMotionBridge.create(_petModel, PIXI.live2d.MotionPriority.FORCE);
+        this.capabilities.motions = motionBridge.capabilities.motions;
+        this.capabilities.expressions = motionBridge.capabilities.expressions;
+      }
     },
 
     unmount: async function() {
+      if (motionBridge) motionBridge.dispose();
+      motionBridge = null;
       if (_petCanvasResizeHandler) {
         window.removeEventListener('resize', _petCanvasResizeHandler);
         _petCanvasResizeHandler = null;
@@ -857,11 +867,12 @@ function _createExistingLive2DAdapter() {
       _lastModelId = '';
     },
 
-    // State and emotion hooks are intentionally no-ops until generic state
-    // names are mapped to known motions/expressions.  Keeping them here makes
-    // the boundary real without changing the current model's behavior.
-    setState: async function() {},
-    setEmotion: async function() {},
+    setState: async function(state) {
+      if (motionBridge) return motionBridge.setState(state);
+    },
+    setEmotion: async function(emotion) {
+      if (motionBridge) return motionBridge.setEmotion(emotion);
+    },
 
     lookAt: function(x, y) {
       if (!_petModel) return;

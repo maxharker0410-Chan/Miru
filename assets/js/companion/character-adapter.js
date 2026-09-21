@@ -93,7 +93,7 @@
 
     var facade = {
       id: adapter.id,
-      capabilities: capabilities,
+      get capabilities() { return capabilities; },
 
       mount: function(host, mountOptions) {
         if (mounted) return Promise.resolve(true);
@@ -103,8 +103,12 @@
             throw new TypeError('Character adapter is missing mount().');
           }
           return adapter.mount(host, mountOptions || {});
-        }).then(function(ok) {
+        }).then(async function(ok) {
+          if (!ok && typeof adapter.unmount === 'function') {
+            await callAsync('unmount', function() { return adapter.unmount(); });
+          }
           mounted = ok;
+          if (ok) capabilities = normalizeCapabilities(adapter.capabilities);
           mountPromise = null;
           return ok;
         });
