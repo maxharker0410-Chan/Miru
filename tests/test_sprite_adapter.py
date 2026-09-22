@@ -5,6 +5,26 @@ from test_character_adapter import _run_node
 import app as app_module
 
 
+def test_first_launch_uses_bundled_portrait_without_live2d():
+    assert _run_node(r"""
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const html=fs.readFileSync('templates/pet.html','utf8');
+const source=html.slice(html.indexOf('function _restoreCharacterRenderer()'),html.indexOf('async function _petInit()'));
+for (const value of [null,'sprite','invalid','live2d']) {
+ const ctx={localStorage:{getItem:()=>value}};
+ vm.runInNewContext(source,ctx);
+ assert.equal(ctx._restoreCharacterRenderer(),value==='live2d'?'live2d':'sprite');
+}
+const ctx={localStorage:{getItem:()=>{throw new Error('storage blocked');}}};
+vm.runInNewContext(source,ctx);
+assert.equal(ctx._restoreCharacterRenderer(),'sprite');
+assert.ok(html.includes('_characterRenderer = _restoreCharacterRenderer();'));
+console.log(JSON.stringify({ok:true}));
+""") == {"ok": True}
+
+
 def test_sprite_lifecycle_states_blink_and_emotions():
     assert _run_node(r"""
 const assert=require('node:assert/strict');

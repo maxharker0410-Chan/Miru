@@ -459,7 +459,7 @@ var _modelBoundsBottom = 0;
 var _modelBoundsLeft = 0;
 var _modelBoundsRight = 0;
 var _characterFacade = null;
-var _characterRenderer = 'live2d';
+var _characterRenderer = 'sprite';
 var _characterSwitchBusy = false;
 var _characterConversation = null;
 var _chatRevision = 0;
@@ -829,7 +829,7 @@ async function _syncModel() {
 }
 
 // ── Companion Character Adapter (Phase 1 facade) ──
-// The existing Live2D renderer remains the default.  Chat, memory, permissions,
+// The bundled portrait is the first-run default. Chat, memory, permissions,
 // and desktop-window behavior stay outside this adapter boundary.
 function _createExistingLive2DAdapter() {
   var motionBridge = null;
@@ -1941,6 +1941,14 @@ function _initLinkInterception() {
 //     3. 等两个 RAF — macOS WebKit 在这两帧内 commit 透明 layer,
 //        backing scale 在第二帧稳定
 //     4. 再创建 PIXI app — 此时 dpr 一定是该屏幕的正确值
+function _restoreCharacterRenderer() {
+  // A fresh portable build includes portrait assets, but no licensed Live2D SDK.
+  // Only an explicit saved Live2D selection should attempt the network SDK load.
+  try {
+    return localStorage.getItem('miru.pet.renderer') === 'live2d' ? 'live2d' : 'sprite';
+  } catch(e) { return 'sprite'; }
+}
+
 async function _petInit() {
   console.log('[pet] Initializing pet page...');
   _initTouchEvents();
@@ -1970,9 +1978,7 @@ async function _petInit() {
     });
   }
 
-  try {
-    if (localStorage.getItem('miru.pet.renderer') === 'sprite') _characterRenderer = 'sprite';
-  } catch(e) {}
+  _characterRenderer = _restoreCharacterRenderer();
   document.getElementById('petCharacterBtn').textContent = _characterRenderer === 'sprite' ? 'Live2D' : '圖片';
   var characterMounted = await _mountCharacter();
   if (characterMounted) {
