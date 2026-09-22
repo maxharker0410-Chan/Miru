@@ -513,11 +513,6 @@ function petRoomRest() {
   if(!sleeping){_room.leave();_room.enter();}
   document.getElementById('roomRest').textContent=sleeping?'休息':'喚醒';
 }
-document.getElementById('roomFloor').addEventListener('pointerdown',function(e){
-  if(!_roomActive||_characterFacade.getState()==='sleeping')return;
-  e.preventDefault();_room.move(e.clientX/window.innerWidth,e.clientY/window.innerHeight);
-});
-window.addEventListener('pagehide',function(e){if(!e.persisted&&_room)_room.leave();});
 var _characterSwitchBusy = false;
 var _characterConversation = null;
 var _chatRevision = 0;
@@ -2009,6 +2004,11 @@ function _restoreCharacterRenderer() {
 }
 
 async function _petInit() {
+  document.getElementById('roomFloor').addEventListener('pointerdown',function(e){
+    if(!_roomActive||_characterFacade.getState()==='sleeping')return;
+    e.preventDefault();_room.move(e.clientX/window.innerWidth,e.clientY/window.innerHeight);
+  });
+  window.addEventListener('pagehide',function(e){if(!e.persisted&&_room)_room.leave();});
   console.log('[pet] Initializing pet page...');
   _initTouchEvents();
   _initLinkInterception();
