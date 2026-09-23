@@ -25,6 +25,7 @@ import android.widget.TextView;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -216,4 +217,3 @@ public final class MainActivity extends Activity {
         @Override protected void onDetachedFromWindow() { art.close(); super.onDetachedFromWindow(); }
     }
 }
-import java.io.ByteArrayOutputStream;
