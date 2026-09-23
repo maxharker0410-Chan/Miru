@@ -27,20 +27,6 @@ html, body {
   background: transparent !important;
 }
 
-#companionRoom { display:none; position:absolute; inset:0; z-index:0;
-  background:linear-gradient(180deg,#eee7f4 0%,#ded3e7 62%,#bba48c 62%,#e4cfb3 100%); }
-#companionRoom .room-window {position:absolute;left:12%;top:10%;width:42%;height:30%;border:10px solid #fff8ef;border-radius:70px 70px 4px 4px;background:linear-gradient(#a7cddd,#f5e5cd);box-shadow:0 10px 40px #a491b955;}
-#companionRoom .room-shelf {position:absolute;right:8%;top:40%;font-size:38px;border-bottom:8px solid #9f826e;padding:0 12px;}
-#roomControls {display:none;position:absolute;top:12px;left:12px;right:12px;z-index:50;gap:6px;flex-wrap:wrap;}
-#roomControls button {padding:9px 12px;border:1px solid #c7bbd1;border-radius:12px;background:#fff9f1;color:#4c3d60;cursor:pointer;}
-#roomFloor {display:none;position:absolute;inset:62% 0 55px;z-index:2;cursor:crosshair;touch-action:none;}
-body.room-mode #companionRoom,body.room-mode #roomFloor {display:block;}
-body.room-mode #roomControls {display:flex;}
-body.room-mode #petTouchLayer {display:none;}
-body.room-mode #petTopArea {bottom:auto!important;top:62px;}
-body.room-mode #petBottomBar {bottom:8px!important;}
-body.room-mode #petToolbarDot {bottom:10px!important;}
-
 /* ── Sakura petals (matches contextlife.vue) ── */
 .sakura-container { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: visible; }
 .sakura-petal {
@@ -327,15 +313,7 @@ body.room-mode #petToolbarDot {bottom:10px!important;}
   <div class="sakura-petal petal-7"></div>
 </div>
 
-<div id="companionRoom"><div class="room-window"></div><div class="room-shelf">🌿 📚</div></div>
 <div id="pet-canvas-wrap"></div>
-<div id="roomFloor" title="點擊地板移動角色"></div>
-<div id="roomControls">
-  <button onclick="petToggleRoom()">回桌面</button>
-  <button onclick="_room.home()">回中央</button>
-  <button id="roomRest" onclick="petRoomRest()">休息</button>
-  <button onclick="_panelExpanded=true;_toolbarExpanded=true;_updateUI();document.getElementById('petInput').focus()">聊天</button>
-</div>
 
 <!-- Touch layer: transparent click-catcher for dragging + panel toggle -->
 <div class="pet-touch-layer" id="petTouchLayer"></div>
@@ -362,7 +340,6 @@ body.room-mode #petToolbarDot {bottom:10px!important;}
   <span class="pet-bar-sep"></span>
   <button id="petLayoutBtn" onclick="petToggleLayoutEdit()" title="Adjust model position">&#8982;</button>
   <button id="petCharacterBtn" onclick="petToggleCharacter()" title="切換圖片角色／Live2D">圖片</button>
-  <button id="petRoomBtn" onclick="petToggleRoom()" title="房間／桌面">房間</button>
   <span class="pet-bar-sep"></span>
   <button id="petScreenshotBtn" onclick="petToggleScreenshot()" title="Screenshot observation">&#128247;</button>
   <span class="pet-bar-sep"></span>
@@ -403,7 +380,6 @@ body.room-mode #petToolbarDot {bottom:10px!important;}
 <script src="/assets/js/companion/character-adapter.js"></script>
 <script src="/assets/js/companion/live2d-motion-bridge.js"></script>
 <script src="/assets/js/companion/sprite-adapter.js"></script>
-<script src="/assets/js/companion/room.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════════
 //  ContextLife Pet — Lightweight vanilla-JS desktop pet
@@ -484,35 +460,6 @@ var _modelBoundsLeft = 0;
 var _modelBoundsRight = 0;
 var _characterFacade = null;
 var _characterRenderer = 'sprite';
-var _roomActive = false, _roomBusy = false, _room = null;
-async function petToggleRoom() {
-  if (_roomBusy) return;
-  _roomBusy=true;
-  try {
-    if (_roomActive) {
-      _room.leave();_roomActive=false;
-      document.body.classList.remove('room-mode');
-      _applyCurrentLayout();
-    } else {
-      if (_layoutEditMode) _exitLayoutEdit();
-      if (_characterRenderer !== 'sprite') await petToggleCharacter();
-      if (!_characterFacade || !_characterFacade.isMounted()) return;
-      if (!_room) _room=window.MiruRoom.create({window:window,resize:function(w,h,layout){_characterFacade.resize(w,h,layout);}});
-      _roomActive=true;document.body.classList.add('room-mode');_room.enter();
-      _panelExpanded=true;_toolbarExpanded=true;_setPassThrough(false);
-    }
-    document.getElementById('petRoomBtn').textContent=_roomActive?'桌面':'房間';
-    document.getElementById('petCharacterBtn').disabled=_roomActive;
-    document.getElementById('petLayoutBtn').disabled=_roomActive;
-    _updateUI();
-  } finally { _roomBusy=false; }
-}
-function petRoomRest() {
-  var sleeping=_characterFacade.getState()==='sleeping';
-  _characterFacade.setState(sleeping?'idle':'sleeping');
-  if(!sleeping){_room.leave();_room.enter();}
-  document.getElementById('roomRest').textContent=sleeping?'休息':'喚醒';
-}
 var _characterSwitchBusy = false;
 var _characterConversation = null;
 var _chatRevision = 0;
@@ -1830,7 +1777,6 @@ function _setPassThrough(enabled) {
 }
 
 function _updatePassThrough(localX, localY, insideWindow) {
-  if (_roomActive) { _setPassThrough(false); return; }
   // Layout edit mode: capture everything
   if (_layoutEditMode) {
     _setPassThrough(false);
@@ -2004,11 +1950,6 @@ function _restoreCharacterRenderer() {
 }
 
 async function _petInit() {
-  document.getElementById('roomFloor').addEventListener('pointerdown',function(e){
-    if(!_roomActive||_characterFacade.getState()==='sleeping')return;
-    e.preventDefault();_room.move(e.clientX/window.innerWidth,e.clientY/window.innerHeight);
-  });
-  window.addEventListener('pagehide',function(e){if(!e.persisted&&_room)_room.leave();});
   console.log('[pet] Initializing pet page...');
   _initTouchEvents();
   _initLinkInterception();

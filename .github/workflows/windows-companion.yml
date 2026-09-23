@@ -47,8 +47,7 @@ jobs:
             'dist/Miru/miru-pet.exe',
             'dist/Miru/_internal/templates/pet.html',
             'dist/Miru/_internal/assets/js/companion/character-adapter.js',
-            'dist/Miru/_internal/assets/js/companion/sprite-adapter.js',
-            'dist/Miru/_internal/assets/js/companion/room.js'
+            'dist/Miru/_internal/assets/js/companion/sprite-adapter.js'
           )
           foreach ($state in @('idle','blink','talking','thinking','happy','sad','surprised','sleeping')) {
             $required += "dist/Miru/_internal/assets/companion/portrait/$state.png"
@@ -59,12 +58,11 @@ jobs:
           @'
           Miru Companion Windows 測試版
 
-          1. ZIP 內容若有「解除封鎖」，先勾選套用，再全部解壓縮；不要只取出 Miru.exe。
+          1. 將下載的 ZIP 全部解壓縮；不要只取出 Miru.exe。
           2. 先完全關閉原本的 Miru，再開啟此資料夾的 Miru.exe。
-          3. 首次預設顯示紫髮角色；點角色展開工具列，按「房間」進入場景。
+          3. 顯示桌寵後，按工具列「圖片」切換到紫髮角色。
           4. 檢查眨眼、傳訊息時的思考與回覆姿勢、拖曳和縮放。
           5. 關閉再重新開啟，確認角色選擇與位置保留。
-          6. 房間中點地板移動，上方按鈕可回中央、休息／喚醒、聊天及回桌面。
 
           本包不包含 Live2D SDK／Hiyori 模型；初次若未顯示模型，請按「圖片」。
           需要 Windows x64 與 WebView2 Runtime。聊天仍需要原本的服務設定。
@@ -73,7 +71,6 @@ jobs:
           '@ | Set-Content dist/Miru/READ-ME-FIRST.txt -Encoding utf8BOM
           Copy-Item LICENSE dist/Miru/LICENSE.txt
           Copy-Item assets/companion/portrait/README.md dist/Miru/CHARACTER-ASSETS.md
-          Copy-Item docs/COMPANION_ROOM.zh-TW.md dist/Miru/ROOM-GUIDE.md
           "Build commit: $env:GITHUB_SHA" | Set-Content dist/Miru/BUILD.txt
       - name: Upload Windows test package
         uses: actions/upload-artifact@v4
