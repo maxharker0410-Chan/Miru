@@ -47,10 +47,17 @@ jobs:
             'dist/Miru/miru-pet.exe',
             'dist/Miru/_internal/templates/pet.html',
             'dist/Miru/_internal/assets/js/companion/character-adapter.js',
-            'dist/Miru/_internal/assets/js/companion/sprite-adapter.js'
+            'dist/Miru/_internal/assets/js/companion/sprite-adapter.js',
+            'dist/Miru/_internal/assets/js/companion/outfit-command.js'
           )
           foreach ($state in @('idle','blink','talking','thinking','happy','sad','surprised','sleeping')) {
             $required += "dist/Miru/_internal/assets/companion/portrait/$state.png"
+          }
+          foreach ($state in @('idle','thinking','shy','sleeping','sad','angry')) {
+            $required += "dist/Miru/_internal/assets/companion/portrait/home/$state.png"
+          }
+          foreach ($state in @('idle','blink','talking','thinking','happy','surprised','shy')) {
+            $required += "dist/Miru/_internal/assets/companion/portrait/outdoor/$state.png"
           }
           foreach ($path in $required) {
             if (-not (Test-Path $path)) { throw "Missing packaged file: $path" }
@@ -61,7 +68,7 @@ jobs:
           1. 將下載的 ZIP 全部解壓縮；不要只取出 Miru.exe。
           2. 先完全關閉原本的 Miru，再開啟此資料夾的 Miru.exe。
           3. 顯示桌寵後，按工具列「圖片」切換到紫髮角色。
-          4. 檢查眨眼、傳訊息時的思考與回覆姿勢、拖曳和縮放。
+          4. 在聊天欄輸入「換居家服」、「換外出服」或「換一般服」；只輸入「換衣服」會輪流切換。檢查表情與拖曳、縮放。
           5. 關閉再重新開啟，確認角色選擇與位置保留。
 
           本包不包含 Live2D SDK／Hiyori 模型；初次若未顯示模型，請按「圖片」。

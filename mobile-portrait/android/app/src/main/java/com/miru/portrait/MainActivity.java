@@ -53,7 +53,7 @@ public final class MainActivity extends Activity {
 
         TextView title = label("Miru 圖片角色", 25);
         body.addView(title);
-        body.addView(label("八張角色圖已內建。可設為桌面動態桌布，或顯示可拖曳的浮動角色；點角色會開啟這個頁面。", 15));
+        body.addView(label("三套服裝已內建。可設為桌面動態桌布，或顯示可拖曳的浮動角色；點角色會開啟這個頁面。", 15));
         preview = new Preview();
         body.addView(preview, new LinearLayout.LayoutParams(-1, dp(300)));
         button(body, "設為桌面動態桌布", () -> {
@@ -66,8 +66,13 @@ public final class MainActivity extends Activity {
         button(body, "顯示浮動角色（需允許顯示在其他應用程式上層）", this::enableOverlay);
         button(body, "關閉浮動角色", () -> stopService(new Intent(this, PortraitOverlay.class)));
 
+        body.addView(label("換衣服（也可以在下方輸入『換居家服』、『換外出服』或『換一般服』）", 19));
+        button(body, "一般服", () -> changeOutfit("normal"));
+        button(body, "居家服", () -> changeOutfit("home"));
+        button(body, "外出服", () -> changeOutfit("outdoor"));
+
         body.addView(label("表情測試", 19));
-        String[] names = {"待機", "思考", "說話", "開心", "難過", "驚訝", "睡覺"};
+        String[] names = {"待機", "思考", "說話", "開心", "難過", "驚訝", "睡覺", "害羞", "生氣"};
         for (int i = 0; i < PortraitArt.STATES.length; i++) {
             final String state = PortraitArt.STATES[i];
             button(body, names[i], () -> { PortraitArt.select(this, state); preview.invalidate(); });
@@ -123,6 +128,12 @@ public final class MainActivity extends Activity {
         String secret = token.getText().toString().trim();
         String text = message.getText().toString().trim();
         if (text.isEmpty()) { status("請先輸入訊息。"); return; }
+        String requestedOutfit = OutfitCommand.parse(text, PortraitArt.outfit(this));
+        if (requestedOutfit != null) {
+            message.setText("");
+            changeOutfit(requestedOutfit);
+            return;
+        }
         if (!base.startsWith("https://") && !base.startsWith("http://")) {
             status("請先填寫 http:// 或 https:// 開頭的 Miru 服務網址。"); return;
         }
@@ -183,6 +194,13 @@ public final class MainActivity extends Activity {
     }
 
     private void status(String text) { if (conversation != null) conversation.setText(text); }
+    private void changeOutfit(String outfit) {
+        PortraitArt.changeOutfit(this, outfit);
+        PortraitArt.select(this, "idle");
+        preview.invalidate();
+        String label = "home".equals(outfit) ? "居家服" : "outdoor".equals(outfit) ? "外出服" : "一般服";
+        status("Miru：換好" + label + "了。");
+    }
     private TextView label(String text, int size) {
         TextView view = new TextView(this);
         view.setText(text); view.setTextSize(size);

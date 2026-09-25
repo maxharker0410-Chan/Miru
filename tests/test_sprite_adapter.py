@@ -72,3 +72,68 @@ def test_portrait_images_are_transparent_and_served():
     assert client.get('/assets/js/companion/sprite-adapter.js').status_code == 200
     assert client.get('/assets/companion/portrait/preview.html').status_code == 200
     assert client.get('/assets/companion/portrait/../../../app.py').status_code == 404
+
+
+def test_three_outfits_and_local_change_clothes_command():
+    assert _run_node(r"""
+const assert=require('node:assert/strict');
+const {create}=require('./assets/js/companion/sprite-adapter.js');
+const {parse}=require('./assets/js/companion/outfit-command.js');
+const timers=new Map();let next=0,element,fail=false;
+const win={innerWidth:420,innerHeight:760,
+ setTimeout:(fn,ms)=>{timers.set(++next,{fn,ms});return next;},clearTimeout:id=>timers.delete(id),
+ addEventListener:()=>{},removeEventListener:()=>{}};
+const host={appendChild:e=>{element=e;}};
+const doc={createElement:()=>({style:{},dataset:{},remove:()=>{}})};
+function image(){return {set src(value){this.url=value;queueMicrotask(()=>{if(fail&&value.includes('/home/'))this.onerror();else this.onload();});},get src(){return this.url;}};}
+(async()=>{
+ assert.equal(parse('請換居家服','normal'),'home');
+ assert.equal(parse('幫我換外出服','home'),'outdoor');
+ assert.equal(parse('換一般衣服','outdoor'),'normal');
+ assert.equal(parse('換衣服','normal'),'home');
+ assert.equal(parse('換衣服','home'),'outdoor');
+ assert.equal(parse('換衣服','outdoor'),'normal');
+ assert.equal(parse('今天外出天氣好嗎','home'),null);
+ const pet=create({window:win,document:doc,createImage:image});
+ await pet.mount(host);
+ assert.equal(element.src,'/assets/companion/portrait/idle.png');
+ assert.equal(await pet.setOutfit('home'),true);
+ await pet.setState('talking');
+ assert.equal(element.src,'/assets/companion/portrait/home/idle.png');
+ await pet.setState('idle');await pet.setEmotion('開心');
+ assert.equal(element.src,'/assets/companion/portrait/home/shy.png');
+ await pet.setEmotion('');await pet.setState('sleeping');
+ assert.equal(element.src,'/assets/companion/portrait/home/sleeping.png');
+ assert.equal(await pet.setOutfit('outdoor'),true);
+ assert.equal(element.src,'/assets/companion/portrait/outdoor/blink.png');
+ await pet.setState('talking');
+ assert.equal(element.src,'/assets/companion/portrait/outdoor/talking.png');
+ await pet.setOutfit('normal');
+ assert.equal(element.src,'/assets/companion/portrait/talking.png');
+ fail=true;
+ await assert.rejects(pet.setOutfit('home'));
+ assert.equal(pet.getOutfit(),'normal');
+ assert.equal(element.src,'/assets/companion/portrait/talking.png');
+ await pet.unmount();
+ console.log(JSON.stringify({ok:true}));
+})();
+""") == {"ok": True}
+
+
+def test_uploaded_outfits_keep_matching_pose_assets():
+    client = app_module.app.test_client()
+    root = Path(__file__).resolve().parents[1] / 'assets/companion/portrait'
+    wardrobe = {
+        'home': ['idle', 'thinking', 'shy', 'sleeping', 'sad', 'angry'],
+        'outdoor': ['idle', 'blink', 'talking', 'thinking', 'happy', 'surprised', 'shy'],
+    }
+    for outfit, states in wardrobe.items():
+        for state in states:
+            with Image.open(root / outfit / f'{state}.png') as image:
+                assert image.format == 'PNG'
+                assert image.size == (1254, 1254)
+                assert image.getchannel('A').getextrema() == (0, 255)
+            response = client.get(f'/assets/companion/portrait/{outfit}/{state}.png')
+            assert response.status_code == 200
+            assert response.mimetype == 'image/png'
+    assert client.get('/assets/js/companion/outfit-command.js').status_code == 200

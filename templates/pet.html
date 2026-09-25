@@ -380,6 +380,7 @@ html, body {
 <script src="/assets/js/companion/character-adapter.js"></script>
 <script src="/assets/js/companion/live2d-motion-bridge.js"></script>
 <script src="/assets/js/companion/sprite-adapter.js"></script>
+<script src="/assets/js/companion/outfit-command.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════════
 //  ContextLife Pet — Lightweight vanilla-JS desktop pet
@@ -460,6 +461,8 @@ var _modelBoundsLeft = 0;
 var _modelBoundsRight = 0;
 var _characterFacade = null;
 var _characterRenderer = 'sprite';
+var _spriteAdapter = null;
+var _petOutfit = 'normal';
 var _characterSwitchBusy = false;
 var _characterConversation = null;
 var _chatRevision = 0;
@@ -915,8 +918,9 @@ function _getCharacterFacade() {
   if (!window.MiruCharacterAdapter) {
     throw new Error('Character Adapter facade failed to load.');
   }
+  _spriteAdapter = _characterRenderer === 'sprite' ? window.MiruSpriteAdapter.create({outfit:_petOutfit}) : null;
   _characterFacade = window.MiruCharacterAdapter.createFacade(
-    _characterRenderer === 'sprite' ? window.MiruSpriteAdapter.create() : _createExistingLive2DAdapter(),
+    _spriteAdapter || _createExistingLive2DAdapter(),
     {
       onError: function(detail) {
         console.warn('[pet] Character adapter ' + detail.action + ' failed:', detail.error);
@@ -960,6 +964,7 @@ async function petToggleCharacter() {
     _characterConversation = null;
     if (_characterFacade) await _characterFacade.unmount();
     _characterFacade = null;
+    _spriteAdapter = null;
     _characterRenderer = _characterRenderer === 'sprite' ? 'live2d' : 'sprite';
     var ok = await _mountCharacter();
     btn.textContent = _characterRenderer === 'sprite' ? 'Live2D' : '圖片';
@@ -971,6 +976,29 @@ async function petToggleCharacter() {
       btn.title = '角色載入失敗，可按此切回另一角色';
     }
   } finally { btn.disabled = false; _characterSwitchBusy = false; }
+}
+
+async function petChangeOutfit(next) {
+  if (['normal','home','outdoor'].indexOf(next) < 0) return false;
+  var previous = _petOutfit;
+  if (_characterRenderer !== 'sprite') {
+    _petOutfit = next;
+    await petToggleCharacter();
+    if (_characterRenderer !== 'sprite' || !_spriteAdapter) {
+      _petOutfit = previous;
+      return false;
+    }
+  } else if (_spriteAdapter) {
+    try {
+      if (!await _spriteAdapter.setOutfit(next)) return false;
+    } catch(e) {
+      console.warn('[pet] Outfit images unavailable:', e);
+      return false;
+    }
+  }
+  _petOutfit = next;
+  try { localStorage.setItem('miru.pet.outfit',next); } catch(e) {}
+  return true;
 }
 
 // ── Layout version polling (bundled mode: no-op) ──
@@ -1043,6 +1071,18 @@ async function petSend() {
   var input = document.getElementById('petInput');
   var text = input.value.trim();
   if (!text) return;
+
+  var requestedOutfit = window.MiruOutfitCommand.parse(text,_petOutfit);
+  if (requestedOutfit) {
+    input.value = ''; _autoResizeInput(); _updateSendBtn();
+    if (!_panelExpanded) { _panelExpanded = true; _updateUI(); }
+    _showUserCaption(text);
+    var changed = await petChangeOutfit(requestedOutfit);
+    var label = {normal:'一般服',home:'居家服',outdoor:'外出服'}[requestedOutfit];
+    _latestMessage = {role:'assistant',text:changed ? '換好' + label + '了。' : '換裝失敗，請檢查角色圖片是否完整。'};
+    _updateCaption(); _scheduleAutoCollapse();
+    return;
+  }
 
   // Show user text briefly in caption
   _sentText = text;
@@ -1979,6 +2019,8 @@ async function _petInit() {
   }
 
   _characterRenderer = _restoreCharacterRenderer();
+  _petOutfit = ['normal','home','outdoor'].indexOf(_readStr('miru.pet.outfit','normal')) >= 0
+    ? _readStr('miru.pet.outfit','normal') : 'normal';
   document.getElementById('petCharacterBtn').textContent = _characterRenderer === 'sprite' ? 'Live2D' : '圖片';
   var characterMounted = await _mountCharacter();
   if (characterMounted) {

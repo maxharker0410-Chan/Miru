@@ -26,10 +26,15 @@ jobs:
           from zipfile import ZipFile
           apk = 'mobile-portrait/android/app/build/outputs/apk/debug/app-debug.apk'
           states = ('idle', 'blink', 'thinking', 'talking', 'happy', 'sad', 'surprised', 'sleeping')
+          home = ('idle', 'thinking', 'shy', 'sleeping', 'sad', 'angry')
+          outdoor = ('idle', 'blink', 'talking', 'thinking', 'happy', 'surprised', 'shy')
           with ZipFile(apk) as package:
-              missing = [state for state in states if 'assets/' + state + '.png' not in package.namelist()]
+              expected = ['assets/' + state + '.png' for state in states]
+              expected += ['assets/home/' + state + '.png' for state in home]
+              expected += ['assets/outdoor/' + state + '.png' for state in outdoor]
+              missing = [path for path in expected if path not in package.namelist()]
           assert not missing, f'Missing images: {missing}'
-          print('All 8 portrait images included in APK')
+          print('All 21 portrait images included in APK')
           PY
       - uses: actions/upload-artifact@v4
         with:
