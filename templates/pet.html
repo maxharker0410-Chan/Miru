@@ -339,6 +339,7 @@ html, body {
   <button onclick="petScaleWindow(1.1)" title="Larger">+</button>
   <span class="pet-bar-sep"></span>
   <button id="petLayoutBtn" onclick="petToggleLayoutEdit()" title="Adjust model position">&#8982;</button>
+  <button id="petCharacterBtn" onclick="petToggleCharacter()" title="切換圖片角色／Live2D">圖片</button>
   <span class="pet-bar-sep"></span>
   <button id="petScreenshotBtn" onclick="petToggleScreenshot()" title="Screenshot observation">&#128247;</button>
   <span class="pet-bar-sep"></span>
@@ -376,6 +377,10 @@ html, body {
   </div>
 </div>
 
+<script src="/assets/js/companion/character-adapter.js"></script>
+<script src="/assets/js/companion/live2d-motion-bridge.js"></script>
+<script src="/assets/js/companion/sprite-adapter.js"></script>
+<script src="/assets/js/companion/outfit-command.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════════
 //  ContextLife Pet — Lightweight vanilla-JS desktop pet
@@ -454,6 +459,15 @@ var _modelBoundsTop = 0;
 var _modelBoundsBottom = 0;
 var _modelBoundsLeft = 0;
 var _modelBoundsRight = 0;
+var _characterFacade = null;
+var _characterRenderer = 'sprite';
+var _spriteAdapter = null;
+var _petOutfit = 'normal';
+var _characterSwitchBusy = false;
+var _characterConversation = null;
+var _chatRevision = 0;
+var _emotionPollPending = false;
+var _petCanvasResizeHandler = null;
 
 var PET_REF_W = 420;
 var PET_REF_H = 760;
@@ -655,6 +669,10 @@ function _applyLayout(model, scale, posX, posY, canvasW, canvasH, initW, initH) 
 }
 
 function _applyCurrentLayout() {
+  if (_characterRenderer === 'sprite' && _characterFacade) {
+    _characterFacade.resize(window.innerWidth,window.innerHeight,{scale:_modelScale,x:_modelPosX,y:_modelPosY});
+    return;
+  }
   if (!_petModel || !_petApp) return;
   var w = _petApp.screen.width;
   var h = _petApp.screen.height;
@@ -683,11 +701,11 @@ function _updateFocus() {
 }
 
 // ── Create PIXI app + load model ──
-async function _initPetCanvas() {
+async function _initPetCanvas(host) {
   await _ensureLive2D();
   if (!window.PIXI || !PIXI.live2d) return;
 
-  var wrap = document.getElementById('pet-canvas-wrap');
+  var wrap = host || document.getElementById('pet-canvas-wrap');
   var w = window.innerWidth;
   var h = window.innerHeight;
 
@@ -714,13 +732,14 @@ async function _initPetCanvas() {
   _petApp.ticker.add(_updateFocus);
 
   // Handle resize
-  window.addEventListener('resize', function() {
+  _petCanvasResizeHandler = function() {
     if (!_petApp) return;
     var nw = window.innerWidth, nh = window.innerHeight;
     _petApp.renderer.resize(nw, nh);
     _applyCurrentLayout();
     _recapCaptionHeight();
-  });
+  };
+  window.addEventListener('resize', _petCanvasResizeHandler);
 }
 
 async function _loadModel(modelUrl, layout) {
@@ -783,7 +802,7 @@ function _layoutStorageKey() {
   // When token is missing (very early boot) we fall back to a generic
   // "_anon" scope so we don't accidentally write into the prior user's slot.
   var scope = token ? token.slice(0, 12) : '_anon';
-  return 'miru_pet_layout_' + BUNDLED_MODEL_ID + '_' + scope;
+  return 'miru_pet_layout_' + (_characterRenderer === 'sprite' ? 'portrait-sprite' : BUNDLED_MODEL_ID) + '_' + scope;
 }
 
 function _loadLayoutFromStorage() {
@@ -812,6 +831,176 @@ async function _syncModel() {
   }
 }
 
+// ── Companion Character Adapter (Phase 1 facade) ──
+// The bundled portrait is the first-run default. Chat, memory, permissions,
+// and desktop-window behavior stay outside this adapter boundary.
+function _createExistingLive2DAdapter() {
+  var motionBridge = null;
+  return {
+    id: 'live2d-existing',
+    capabilities: {
+      motions: false,
+      expressions: false,
+      lipSync: false,
+      focusTracking: true,
+      transparentBackground: true
+    },
+
+    mount: async function(host) {
+      await _initPetCanvas(host);
+      await _syncModel();
+      if (!_petModel) throw new Error('Live2D model did not load');
+      if (window.MiruLive2DMotionBridge) {
+        motionBridge = window.MiruLive2DMotionBridge.create(_petModel, PIXI.live2d.MotionPriority.FORCE);
+        this.capabilities.motions = motionBridge.capabilities.motions;
+        this.capabilities.expressions = motionBridge.capabilities.expressions;
+      }
+    },
+
+    unmount: async function() {
+      if (motionBridge) motionBridge.dispose();
+      motionBridge = null;
+      if (_petCanvasResizeHandler) {
+        window.removeEventListener('resize', _petCanvasResizeHandler);
+        _petCanvasResizeHandler = null;
+      }
+      if (_petApp && _petApp.ticker) {
+        try { _petApp.ticker.remove(_updateFocus); } catch(e) {}
+      }
+      if (_petModel && _petApp) {
+        try { _petApp.stage.removeChild(_petModel); _petModel.destroy(); } catch(e) {}
+      }
+      _petModel = null;
+      if (_petApp) {
+        try { _petApp.destroy(true, { children: true, texture: false, baseTexture: false }); } catch(e) {}
+      }
+      _petApp = null;
+      _lastModelId = '';
+    },
+
+    setState: async function(state) {
+      if (motionBridge) return motionBridge.setState(state);
+    },
+    setEmotion: async function(emotion) {
+      if (motionBridge) return motionBridge.setEmotion(emotion);
+    },
+
+    lookAt: function(x, y) {
+      if (!_petModel) return;
+      _cursorX = _petModel.x + x * 300;
+      _cursorY = _petModel.y + y * 300;
+    },
+
+    resize: function(width, height, layout) {
+      if (!_petApp) return;
+      _petApp.renderer.resize(width, height);
+      if (layout && typeof layout.scale === 'number') _modelScale = layout.scale;
+      if (layout && typeof layout.x === 'number') _modelPosX = layout.x;
+      if (layout && typeof layout.y === 'number') _modelPosY = layout.y;
+      _applyCurrentLayout();
+    },
+
+    getBounds: function() {
+      if (!_petModel) return null;
+      var bounds = _petModel.getBounds();
+      return {
+        left: bounds.x,
+        top: bounds.y,
+        right: bounds.x + bounds.width,
+        bottom: bounds.y + bounds.height
+      };
+    }
+  };
+}
+
+function _getCharacterFacade() {
+  if (_characterFacade) return _characterFacade;
+  if (!window.MiruCharacterAdapter) {
+    throw new Error('Character Adapter facade failed to load.');
+  }
+  _spriteAdapter = _characterRenderer === 'sprite' ? window.MiruSpriteAdapter.create({outfit:_petOutfit}) : null;
+  _characterFacade = window.MiruCharacterAdapter.createFacade(
+    _spriteAdapter || _createExistingLive2DAdapter(),
+    {
+      onError: function(detail) {
+        console.warn('[pet] Character adapter ' + detail.action + ' failed:', detail.error);
+      }
+    }
+  );
+  return _characterFacade;
+}
+
+async function _mountCharacter() {
+  try {
+    var spriteLayout = null;
+    if (_characterRenderer === 'sprite') {
+      spriteLayout = _loadLayoutFromStorage() || {scale:1,x:0,y:0};
+      _modelScale = spriteLayout.scale; _modelPosX = spriteLayout.x; _modelPosY = spriteLayout.y;
+      _lastModelId = 'portrait-sprite';
+    }
+    var mounted = await _getCharacterFacade().mount(
+      document.getElementById('pet-canvas-wrap'),
+      { renderer: _characterRenderer, modelId: BUNDLED_MODEL_ID, layout: spriteLayout }
+    );
+    if (mounted) {
+      _pollModelBounds();
+      _characterConversation = window.MiruCharacterAdapter.createConversationController(_characterFacade);
+    }
+    return mounted;
+  } catch(e) {
+    console.warn('[pet] Character unavailable; text chat remains usable:', e);
+    return false;
+  }
+}
+
+async function petToggleCharacter() {
+  if (_characterSwitchBusy) return;
+  _characterSwitchBusy = true;
+  var btn = document.getElementById('petCharacterBtn');
+  btn.disabled = true;
+  try {
+    if (_layoutEditMode) _exitLayoutEdit();
+    if (_characterConversation) _characterConversation.dispose();
+    _characterConversation = null;
+    if (_characterFacade) await _characterFacade.unmount();
+    _characterFacade = null;
+    _spriteAdapter = null;
+    _characterRenderer = _characterRenderer === 'sprite' ? 'live2d' : 'sprite';
+    var ok = await _mountCharacter();
+    btn.textContent = _characterRenderer === 'sprite' ? 'Live2D' : '圖片';
+    if (ok) {
+      try { localStorage.setItem('miru.pet.renderer',_characterRenderer); } catch(e) {}
+      if (_backendTyping && _characterConversation) _characterConversation.thinking();
+      _pollCharacterEmotion();
+    } else {
+      btn.title = '角色載入失敗，可按此切回另一角色';
+    }
+  } finally { btn.disabled = false; _characterSwitchBusy = false; }
+}
+
+async function petChangeOutfit(next) {
+  if (['normal','home','outdoor'].indexOf(next) < 0) return false;
+  var previous = _petOutfit;
+  if (_characterRenderer !== 'sprite') {
+    _petOutfit = next;
+    await petToggleCharacter();
+    if (_characterRenderer !== 'sprite' || !_spriteAdapter) {
+      _petOutfit = previous;
+      return false;
+    }
+  } else if (_spriteAdapter) {
+    try {
+      if (!await _spriteAdapter.setOutfit(next)) return false;
+    } catch(e) {
+      console.warn('[pet] Outfit images unavailable:', e);
+      return false;
+    }
+  }
+  _petOutfit = next;
+  try { localStorage.setItem('miru.pet.outfit',next); } catch(e) {}
+  return true;
+}
+
 // ── Layout version polling (bundled mode: no-op) ──
 async function _pollLayoutVersion() {
   // Intentionally empty — layout is local, persisted via _saveLayout to localStorage.
@@ -825,7 +1014,8 @@ function _pollModelBounds() {
   var dot = document.getElementById('petToolbarDot');
   var touchLayer = document.getElementById('petTouchLayer');
 
-  if (!_petModel || !_petApp) {
+  var bounds = _characterFacade && _characterFacade.getBounds();
+  if (!bounds) {
     // Fallback: use values from settings
     if (topArea) topArea.style.bottom = _settingsChatPosition + '%';
     var fallbackTb = _settingsToolbarPosition;
@@ -835,12 +1025,11 @@ function _pollModelBounds() {
     return;
   }
 
-  // Use PIXI getBounds() for accurate screen-space bounds
-  var bounds = _petModel.getBounds();
-  _modelBoundsTop = bounds.y;
-  _modelBoundsBottom = bounds.y + bounds.height;
-  _modelBoundsLeft = bounds.x;
-  _modelBoundsRight = bounds.x + bounds.width;
+  // Renderer-neutral screen-space bounds.
+  _modelBoundsTop = bounds.top;
+  _modelBoundsBottom = bounds.bottom;
+  _modelBoundsLeft = bounds.left;
+  _modelBoundsRight = bounds.right;
 
   // Position chat area above model head
   var pct = ((vh - _modelBoundsTop + 8) / vh) * 100;
@@ -883,6 +1072,18 @@ async function petSend() {
   var text = input.value.trim();
   if (!text) return;
 
+  var requestedOutfit = window.MiruOutfitCommand.parse(text,_petOutfit);
+  if (requestedOutfit) {
+    input.value = ''; _autoResizeInput(); _updateSendBtn();
+    if (!_panelExpanded) { _panelExpanded = true; _updateUI(); }
+    _showUserCaption(text);
+    var changed = await petChangeOutfit(requestedOutfit);
+    var label = {normal:'一般服',home:'居家服',outdoor:'外出服'}[requestedOutfit];
+    _latestMessage = {role:'assistant',text:changed ? '換好' + label + '了。' : '換裝失敗，請檢查角色圖片是否完整。'};
+    _updateCaption(); _scheduleAutoCollapse();
+    return;
+  }
+
   // Show user text briefly in caption
   _sentText = text;
   input.value = '';
@@ -910,6 +1111,8 @@ async function petSend() {
   // arrives via the history poll, or (c) the deadline elapses (LLM stuck).
   // 15s is generous because the user's API host can be slow.
   _backendTyping = true;
+  _chatRevision++;
+  if (_characterConversation) _characterConversation.thinking();
   _optimisticTypingDeadline = Date.now() + 15000;
 
   // Fire-and-forget — same async path as index.html
@@ -923,6 +1126,8 @@ async function petSend() {
       body: JSON.stringify({ text: text })
     });
     if (!res.ok) {
+      _chatRevision++;
+      if (_characterConversation) _characterConversation.failed();
       _backendTyping = false;  // request rejected — don't strand thinking dots
       _optimisticTypingDeadline = 0;  // close window so poll can take over
       var err = await res.json().catch(function() { return {}; });
@@ -930,6 +1135,8 @@ async function petSend() {
       _updateCaption(); _scheduleAutoCollapse();
     }
   } catch(e) {
+    if (_characterConversation) _characterConversation.failed();
+    _chatRevision++;
     _backendTyping = false;  // network error — don't strand thinking dots
     _optimisticTypingDeadline = 0;  // close window so poll can take over
     _latestMessage = { role: 'assistant', text: 'Error: ' + e.message };
@@ -974,10 +1181,12 @@ function _showUserCaption(text) {
 // ── Unified polling — purely driven by backend state ──
 
 function _pollChat() {
+  var revision = _chatRevision;
   // 1) Poll typing status — always, not gated by any frontend flag
   fetch('/api/chat/typing', { cache: 'no-store' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
+      if (revision !== _chatRevision) return;
       var newTyping = !!d.typing;
       var inOptimistic = Date.now() < _optimisticTypingDeadline;
 
@@ -998,6 +1207,10 @@ function _pollChat() {
       if (newTyping) {
         _optimisticTypingDeadline = 0;
       }
+      if (_characterConversation) {
+        if (newTyping && !wasTyping) _characterConversation.thinking();
+        else if (!newTyping) _characterConversation.typingEnded();
+      }
       if (_backendTyping !== wasTyping) _updateCaption();
     }).catch(function() {});
 
@@ -1005,6 +1218,7 @@ function _pollChat() {
   fetch('/api/chat/history?limit=3', { cache: 'no-store' })
     .then(function(r) { return r.json(); })
     .then(function(data) {
+      if (revision !== _chatRevision) return;
       var msgs = data.messages || data;
       if (!Array.isArray(msgs) || !msgs.length) return;
 
@@ -1026,9 +1240,12 @@ function _pollChat() {
       // (otherwise the lock would keep displaying "thinking..." until the
       // 15s deadline elapses, hiding the actual response).
       _lastSeenMsgId = newId;
+      _chatRevision++;
       _latestMessage = lastAssistant;
       _backendTyping = false;
       _optimisticTypingDeadline = 0;
+
+      if (_characterConversation) _characterConversation.reply(lastAssistant.text || lastAssistant.content || '');
 
       _updateCaption();
       _updateSendBtn();
@@ -1041,6 +1258,16 @@ function _pollChat() {
       _scheduleAutoCollapse();
     })
     .catch(function() {});
+}
+
+function _pollCharacterEmotion() {
+  if (!_characterConversation || _emotionPollPending) return;
+  _emotionPollPending = true;
+  fetch('/api/miru-emotion/current', { cache: 'no-store' })
+    .then(function(r) { if (!r.ok) throw new Error('Emotion unavailable'); return r.json(); })
+    .then(function(data) { _characterConversation.emotion(data); })
+    .catch(function() {})
+    .finally(function() { _emotionPollPending = false; });
 }
 
 // Recalculate .pet-caption max-height based on available viewport space
@@ -1604,7 +1831,7 @@ function _updatePassThrough(localX, localY, insideWindow) {
   var interactive = false;
 
   // Check model bounds (always active)
-  if (_petModel
+  if (_characterFacade && _characterFacade.isMounted()
     && localX >= _modelBoundsLeft && localX <= _modelBoundsRight
     && localY >= _modelBoundsTop && localY <= _modelBoundsBottom) {
     interactive = true;
@@ -1754,6 +1981,14 @@ function _initLinkInterception() {
 //     3. 等两个 RAF — macOS WebKit 在这两帧内 commit 透明 layer,
 //        backing scale 在第二帧稳定
 //     4. 再创建 PIXI app — 此时 dpr 一定是该屏幕的正确值
+function _restoreCharacterRenderer() {
+  // A fresh portable build includes portrait assets, but no licensed Live2D SDK.
+  // Only an explicit saved Live2D selection should attempt the network SDK load.
+  try {
+    return localStorage.getItem('miru.pet.renderer') === 'live2d' ? 'live2d' : 'sprite';
+  } catch(e) { return 'sprite'; }
+}
+
 async function _petInit() {
   console.log('[pet] Initializing pet page...');
   _initTouchEvents();
@@ -1783,19 +2018,15 @@ async function _petInit() {
     });
   }
 
-  try {
-    await _initPetCanvas();
-    console.log('[pet] PIXI canvas created (dpr=' + (window.devicePixelRatio || 1) + ')');
-  } catch(e) {
-    console.error('[pet] Canvas init failed:', e);
-    return;
-  }
-
-  try {
-    await _syncModel();
-    console.log('[pet] Model synced');
-  } catch(e) {
-    console.error('[pet] Model sync failed:', e);
+  _characterRenderer = _restoreCharacterRenderer();
+  _petOutfit = ['normal','home','outdoor'].indexOf(_readStr('miru.pet.outfit','normal')) >= 0
+    ? _readStr('miru.pet.outfit','normal') : 'normal';
+  document.getElementById('petCharacterBtn').textContent = _characterRenderer === 'sprite' ? 'Live2D' : '圖片';
+  var characterMounted = await _mountCharacter();
+  if (characterMounted) {
+    console.log('[pet] Character mounted (dpr=' + (window.devicePixelRatio || 1) + ')');
+  } else {
+    console.warn('[pet] Character mount failed; continuing with text chat.');
   }
 
   // Register Tauri event listeners (after PIXI canvas exists)
@@ -1844,6 +2075,13 @@ async function _petInit() {
   // Poll chat — detect ALL new messages (replies, proactive attention messages, reminders, etc.)
   // Fast poll (1.5s) when backend is typing, normal poll (5s) otherwise
   var _lastPollTime = 0;
+  _pollCharacterEmotion();
+  var emotionTimer = setInterval(_pollCharacterEmotion, 15000);
+  window.addEventListener('pagehide', function(event) {
+    if (event.persisted) return; // bfcache resumes the existing controller
+    clearInterval(emotionTimer);
+    if (_characterConversation) _characterConversation.dispose();
+  });
   setInterval(function() {
     var now = Date.now();
     var interval = _backendTyping ? 1500 : 5000;
