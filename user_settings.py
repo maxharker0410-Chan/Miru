@@ -24,6 +24,7 @@ USER_FIELDS = {
     "auto_screenshot_interval",
     "pet_hotkey",
     "pet_collapse_delay",
+    "pet_outfit",
 }
 
 DEFAULT_SCREENSHOT_INTERVAL = 30
@@ -142,6 +143,7 @@ def get() -> dict:
         "auto_screenshot_interval": interval,
         "pet_hotkey": hotkey,
         "pet_collapse_delay": collapse,
+        "pet_outfit": saved.get("pet_outfit") if saved.get("pet_outfit") in ("normal", "home", "outdoor") else None,
     }
 
 
@@ -176,6 +178,11 @@ def update(payload: dict) -> dict:
                 saved["pet_collapse_delay"] = min(max(delay, 1000), 60000)
             except (ValueError, TypeError):
                 pass
+
+        if "pet_outfit" in payload:
+            if payload["pet_outfit"] not in ("normal", "home", "outdoor"):
+                return {"ok": False, "error": "invalid pet outfit"}
+            saved["pet_outfit"] = payload["pet_outfit"]
 
         if "auto_screenshot_interval" in payload and payload["auto_screenshot_interval"] is not None:
             try:

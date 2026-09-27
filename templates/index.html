@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#FFF9F2">
 <script src="/assets/js/android-lifecycle-shim.js"></script>
+<script src="/assets/js/companion/outfit-command.js"></script>
 <script>
 (function() {
   var params;
@@ -10903,6 +10904,33 @@ function _syncTypingFromBackend() {
 async function sendCompanionMessage() {
   const text = textInput.value.trim();
   if (!text) return;
+
+  // The main chat and the desktop pet use separate WebViews. Share wardrobe
+  // selection through per-user settings so a request here changes the pet.
+  if (window.MiruOutfitCommand && window.MiruOutfitCommand.parse(text, 'normal')) {
+    addCompanionUserBubble(text, null, null);
+    textInput.value = '';
+    textInput.style.height = '44px';
+    try {
+      const currentResponse = await fetch('/api/user-settings', {cache: 'no-store'});
+      if (!currentResponse.ok) throw new Error('無法讀取服裝設定');
+      const currentBody = await currentResponse.json();
+      const current = (currentBody.settings || {}).pet_outfit || 'normal';
+      const next = window.MiruOutfitCommand.parse(text, current);
+      const response = await fetch('/api/user-settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pet_outfit: next})
+      });
+      if (!response.ok) throw new Error('無法儲存服裝設定');
+      const label = {normal: '一般服', home: '居家服', outdoor: '外出服'}[next];
+      addCompanionReplyBubble('換好' + label + '了。桌寵會在幾秒內切換。', [], null);
+    } catch (error) {
+      addCompanionReplyBubble('換裝失敗：' + error.message, [], null);
+    }
+    scrollCompanionChatToBottom();
+    return;
+  }
 
   // Show user bubble immediately.
   // No explicit msgTime → grouper falls back to wall-clock (within ms of

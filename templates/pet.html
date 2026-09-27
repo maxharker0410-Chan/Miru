@@ -208,7 +208,8 @@ html, body {
   left: 50%; transform: translateX(-50%);
   z-index: 20;
   width: fit-content;
-  display: flex; gap: 2px; align-items: center; justify-content: center;
+  max-width: calc(100vw - 8px);
+  display: flex; flex-wrap: wrap; gap: 2px; align-items: center; justify-content: center;
   padding: 4px 8px;
   border-radius: 20px;
   background: rgba(15,23,42,0.82);
@@ -340,6 +341,7 @@ html, body {
   <span class="pet-bar-sep"></span>
   <button id="petLayoutBtn" onclick="petToggleLayoutEdit()" title="Adjust model position">&#8982;</button>
   <button id="petCharacterBtn" onclick="petToggleCharacter()" title="切換圖片角色／Live2D">圖片</button>
+  <button id="petOutfitBtn" onclick="petCycleOutfit()" title="換衣服：一般服 → 居家服 → 外出服">服裝</button>
   <span class="pet-bar-sep"></span>
   <button id="petScreenshotBtn" onclick="petToggleScreenshot()" title="Screenshot observation">&#128247;</button>
   <span class="pet-bar-sep"></span>
@@ -978,7 +980,7 @@ async function petToggleCharacter() {
   } finally { btn.disabled = false; _characterSwitchBusy = false; }
 }
 
-async function petChangeOutfit(next) {
+async function petChangeOutfit(next, persist) {
   if (['normal','home','outdoor'].indexOf(next) < 0) return false;
   var previous = _petOutfit;
   if (_characterRenderer !== 'sprite') {
@@ -998,7 +1000,32 @@ async function petChangeOutfit(next) {
   }
   _petOutfit = next;
   try { localStorage.setItem('miru.pet.outfit',next); } catch(e) {}
+  _updateOutfitBtn();
+  if (persist !== false) {
+    fetch('/api/user-settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({pet_outfit: next})
+    }).catch(function(error) { console.warn('[pet] Outfit setting did not sync:', error); });
+  }
   return true;
+}
+
+function _updateOutfitBtn() {
+  var btn = document.getElementById('petOutfitBtn');
+  if (!btn) return;
+  var name = {normal:'一般服',home:'居家服',outdoor:'外出服'}[_petOutfit];
+  btn.title = '目前：' + name + '；點擊換下一套';
+  btn.textContent = '服裝：' + name;
+}
+
+async function petCycleOutfit() {
+  var next = {normal:'home',home:'outdoor',outdoor:'normal'}[_petOutfit];
+  var changed = await petChangeOutfit(next);
+  if (!changed) {
+    _latestMessage = {role:'assistant',text:'換裝失敗，請檢查角色圖片是否完整。'};
+    _updateCaption();
+  }
 }
 
 // ── Layout version polling (bundled mode: no-op) ──
@@ -1580,6 +1607,12 @@ function _fetchScreenshotState() {
     if (typeof cd === 'number' && cd >= 1000 && cd !== _autoCollapseDelay) {
       _autoCollapseDelay = cd;
     }
+    // The main chat runs in another WebView and writes the outfit here.
+    if (['normal','home','outdoor'].indexOf(data.pet_outfit) >= 0
+        && data.pet_outfit !== _petOutfit && !_outfitSyncPending) {
+      _outfitSyncPending = true;
+      petChangeOutfit(data.pet_outfit, false).finally(function() { _outfitSyncPending = false; });
+    }
   }).catch(function(){});
 }
 
@@ -1588,6 +1621,7 @@ function _fetchScreenshotState() {
 // Small delay so _clientModeToken/_clientModeServerUrl have settled.
 setTimeout(_fetchScreenshotState, 300);
 setInterval(_fetchScreenshotState, 5000);
+var _outfitSyncPending = false;
 
 // SSE for realtime pet runtime updates — the main window broadcasts
 // `pet_runtime_changed` whenever the user saves a new hotkey or auto-
@@ -2021,6 +2055,7 @@ async function _petInit() {
   _characterRenderer = _restoreCharacterRenderer();
   _petOutfit = ['normal','home','outdoor'].indexOf(_readStr('miru.pet.outfit','normal')) >= 0
     ? _readStr('miru.pet.outfit','normal') : 'normal';
+  _updateOutfitBtn();
   document.getElementById('petCharacterBtn').textContent = _characterRenderer === 'sprite' ? 'Live2D' : '圖片';
   var characterMounted = await _mountCharacter();
   if (characterMounted) {
