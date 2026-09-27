@@ -93,6 +93,20 @@ def test_update_persists_to_user_dir(monkeypatch, tmp_path):
         assert raw["timezone"] == "Asia/Shanghai"
 
 
+def test_pet_outfit_shared_between_desktop_windows(tmp_path):
+    import user_settings
+    user_dir = str(tmp_path / "u_pet")
+    os.makedirs(user_dir, exist_ok=True)
+    with _user_ctx(user_dir):
+        assert user_settings.get()["pet_outfit"] is None
+        assert user_settings.update({"pet_outfit": "home"})["ok"]
+        assert user_settings.get()["pet_outfit"] == "home"
+        assert user_settings.update({"pet_outfit": "outdoor"})["ok"]
+        assert user_settings.get()["pet_outfit"] == "outdoor"
+        assert not user_settings.update({"pet_outfit": "../../../etc"})["ok"]
+        assert user_settings.get()["pet_outfit"] == "outdoor"
+
+
 def test_concurrent_updates_are_serialized_per_user(monkeypatch, tmp_path):
     """Concurrent desktop/native writes must not share one .tmp file."""
     import user_settings

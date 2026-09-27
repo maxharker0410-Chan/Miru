@@ -75,6 +75,19 @@ def _initial_url(config: dict, cache_buster: int | None = None) -> str:
     return _desktop_url(f"http://127.0.0.1:{PORT}/login")
 
 
+def _remote_outfit_bridge_script(current_url: str, config: dict) -> str:
+    """Only inject the bundled wardrobe bridge into our configured remote app."""
+    remote = urlsplit(str(config.get("server_url") or ""))
+    current = urlsplit(current_url or "")
+    if (remote.scheme not in {"https", "http"} or not remote.netloc
+            or current.scheme != remote.scheme or current.netloc != remote.netloc
+            or current.path != "/app" or remote.hostname in {"localhost", "127.0.0.1"}):
+        return ""
+    root = _bundle_dir() / "assets" / "js" / "companion"
+    return (root / "outfit-command.js").read_text(encoding="utf-8") + "\n" + (
+        root / "windows-outfit-bridge.js").read_text(encoding="utf-8")
+
+
 def _no_proxy_json(method: str, path: str, payload: dict | None = None) -> dict:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     data = None
@@ -363,6 +376,12 @@ def main(platform_name: str = "windows") -> int:
     def on_loaded():
         current = window.get_current_url() or ""
         state["app_ready"] = False if "/app" not in current else state["app_ready"]
+        try:
+            script = _remote_outfit_bridge_script(current, config)
+            if script:
+                window.evaluate_js(script)
+        except Exception as exc:
+            print(f"[Windows] Wardrobe bridge unavailable: {exc}")
 
     window.events.loaded += on_loaded
     threading.Thread(

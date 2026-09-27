@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>角色素材預覽</title>
+<style>
+body{margin:0;background:#f2eaf7;color:#30243e;font:16px system-ui}#stage{position:fixed;inset:0;pointer-events:none}
+nav{position:relative;z-index:2;display:flex;gap:8px;flex-wrap:wrap;padding:16px;max-width:620px}
+button{border:1px solid #b7a6c8;background:white;border-radius:8px;padding:8px 12px;cursor:pointer}
+p{position:relative;z-index:2;margin:0 16px;max-width:550px}#status{position:fixed;bottom:16px;left:16px}
+</style>
+<div id="stage"></div><nav id="controls"></nav>
+<p>一般、居家、外出三套原始透明 PNG。居家待機沒有閉眼圖；缺少的表情使用同套服裝的替代姿勢。</p>
+<p id="status">載入中…</p>
+<script src="../../../../assets/js/companion/sprite-adapter.js"></script>
+<script>
+const adapter=MiruSpriteAdapter.create({base:'./'});
+const entries=[['idle','待機'],['thinking','思考'],['talking','說話'],['happy','開心'],['sad','難過'],['surprised','驚訝'],['sleeping','睡眠'],['shy','害羞'],['angry','生氣']];
+adapter.mount(document.getElementById('stage')).then(()=>{
+ document.getElementById('status').textContent='待機';
+ [['normal','一般'],['home','居家'],['outdoor','外出']].forEach(([outfit,label])=>{
+  const button=document.createElement('button');button.textContent=label+'服';
+  button.onclick=()=>adapter.setOutfit(outfit).then(()=>{document.getElementById('status').textContent=label+'服';});
+  document.getElementById('controls').appendChild(button);
+ });
+ entries.forEach(([state,label])=>{
+  const button=document.createElement('button');button.textContent=label;
+  button.onclick=()=>{adapter.setState(state);document.getElementById('status').textContent=label;};
+  document.getElementById('controls').appendChild(button);
+ });
+}).catch(()=>{document.getElementById('status').textContent='圖片載入失敗';});
+</script></html>
