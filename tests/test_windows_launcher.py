@@ -51,6 +51,20 @@ def test_initial_url_for_remote_returning_user_uses_server():
     assert "token=remote-token" in url
 
 
+def test_remote_windows_main_view_gets_only_trusted_outfit_bridge():
+    cfg = {"server_url": "https://miru.example.test/"}
+    script = windows_launcher._remote_outfit_bridge_script(
+        "https://miru.example.test/app?desktop=1", cfg)
+    assert "MiruOutfitCommand" in script
+    assert "get_local_settings" in script
+    assert windows_launcher._remote_outfit_bridge_script(
+        "https://other.example.test/app", cfg) == ""
+    assert windows_launcher._remote_outfit_bridge_script(
+        "https://miru.example.test/other", cfg) == ""
+    assert windows_launcher._remote_outfit_bridge_script(
+        "http://127.0.0.1:5001/app", {"server_url": "http://127.0.0.1:5001"}) == ""
+
+
 def test_windows_permission_check_does_not_capture(monkeypatch):
     class App:
         pass

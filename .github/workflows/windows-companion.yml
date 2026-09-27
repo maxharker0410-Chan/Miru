@@ -48,7 +48,8 @@ jobs:
             'dist/Miru/_internal/templates/pet.html',
             'dist/Miru/_internal/assets/js/companion/character-adapter.js',
             'dist/Miru/_internal/assets/js/companion/sprite-adapter.js',
-            'dist/Miru/_internal/assets/js/companion/outfit-command.js'
+            'dist/Miru/_internal/assets/js/companion/outfit-command.js',
+            'dist/Miru/_internal/assets/js/companion/windows-outfit-bridge.js'
           )
           foreach ($state in @('idle','blink','talking','thinking','happy','sad','surprised','sleeping')) {
             $required += "dist/Miru/_internal/assets/companion/portrait/$state.png"
