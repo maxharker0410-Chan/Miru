@@ -34,28 +34,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'venv creation failed' }
           & .\.venv-windows\Scripts\python.exe -m pip install -r requirements.txt 'pyinstaller>=6.11,<7'
           if ($LASTEXITCODE -ne 0) { throw 'dependency installation failed' }
-      - name: Prepare Rust
-        run: |
-          rustup default stable
-          if ($LASTEXITCODE -ne 0) { throw 'Rust setup failed' }
-      - name: Build Windows application and test native pet
+      - name: Build S. Chat Windows application
         run: ./build_windows.ps1 -SkipDependencies -SkipInstaller
       - name: Verify packaged story studio and add instructions
         run: |
           $required = @(
             'dist/S.Chat/S.Chat.exe',
-            'dist/S.Chat/miru-pet.exe',
             'dist/S.Chat/_internal/templates/s-chat.html'
           )
-          foreach ($state in @('idle','blink','talking','thinking','happy','sad','surprised','sleeping')) {
-            $required += "dist/S.Chat/_internal/assets/companion/portrait/$state.png"
-          }
-          foreach ($state in @('idle','thinking','shy','sleeping','sad','angry')) {
-            $required += "dist/S.Chat/_internal/assets/companion/portrait/home/$state.png"
-          }
-          foreach ($state in @('idle','blink','talking','thinking','happy','surprised','shy')) {
-            $required += "dist/S.Chat/_internal/assets/companion/portrait/outdoor/$state.png"
-          }
           foreach ($path in $required) {
             if (-not (Test-Path $path)) { throw "Missing packaged file: $path" }
           }
