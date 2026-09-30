@@ -13,9 +13,9 @@ LOGIN_HTML = ROOT / "templates" / "login.html"
 def test_first_run_wizard_exposes_expected_paths():
     html = LOGIN_HTML.read_text(encoding="utf-8")
 
-    assert "Miru 要住在哪里" in html
+    assert "S. Chat 要儲存在哪裡" in html
     assert "只在这台电脑使用" in html
-    assert "让 Miru 住在这台电脑" in html
+    assert "在這台電腦開始 S. Chat" in html
     assert "本地单设备模式" not in html
     assert "适合先自己体验 Miru" not in html
     assert "开始本地使用" in html
@@ -24,7 +24,9 @@ def test_first_run_wizard_exposes_expected_paths():
     assert "<h1>API Key</h1>" in html
     assert "连接 Miru 的模型" not in html
     assert "先配置 API Key" not in html
-    assert "Miru 需要视觉、聊天、记忆三组模型" in html
+    assert "S. Chat 故事模式只需要聊天模型" in html
+    assert "if (desktopParams && desktopParams.desktop_platform === 'windows')" in html
+    assert "return [['chat', storyChat]]" in html
     assert "服务地址填 OpenAI-compatible Base URL" in html
     assert "误填到 /v1/chat/completions 时会自动改回 /v1" not in html
     assert 'body[data-view="api-setup"] .sub' in html

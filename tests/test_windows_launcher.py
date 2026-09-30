@@ -32,12 +32,12 @@ def test_initial_url_for_local_returning_user_stays_local():
         },
         cache_buster=123,
     )
-    assert url.startswith("http://127.0.0.1:5001/app?")
+    assert url.startswith("http://127.0.0.1:5001/s-chat?")
     assert "token=local-token" in url
     assert "desktop=1" in url
 
 
-def test_initial_url_for_remote_returning_user_uses_server():
+def test_initial_url_for_remote_returning_user_uses_local_story_studio():
     url = windows_launcher._initial_url(
         {
             "mode": "remote",
@@ -47,7 +47,7 @@ def test_initial_url_for_remote_returning_user_uses_server():
         },
         cache_buster=123,
     )
-    assert url.startswith("https://miru.example.test/app?")
+    assert url.startswith("http://127.0.0.1:5001/s-chat?")
     assert "token=remote-token" in url
 
 
@@ -152,6 +152,8 @@ def test_webview_bootstrap_ready_requires_completed_app_page():
     assert windows_launcher._webview_bootstrap_ready(ready) is True
     assert "_bootstrapComplete" in ready.expressions[0]
     assert "bootSplash" in ready.expressions[0]
+    studio = Window("http://127.0.0.1:5001/s-chat?desktop=1", False)
+    assert windows_launcher._webview_bootstrap_ready(studio) is True
 
 
 def test_windows_build_script_uses_real_python_and_fails_on_native_errors():

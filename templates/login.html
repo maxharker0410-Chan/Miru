@@ -14,7 +14,7 @@
   } catch (e) {}
 })();
 </script>
-<title>Miru — 初次见面</title>
+<title>S. Chat — 開始你的故事</title>
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -869,15 +869,15 @@ body[data-view="api-setup"] .note {
 <main class="shell">
   <div class="topbar">
     <div class="brand">
-      <img src="/assets/brand/miru-logo.svg" alt="" onerror="this.onerror=null;this.src='/icon-192.png'">
-      <span>Miru</span>
+      <img src="/assets/brand/schat-icon.png" alt="">
+      <span>S. Chat</span>
     </div>
   </div>
 
   <section class="panel">
     <div id="view-home" class="view active">
       <p class="kicker">FIRST RUN</p>
-      <h1>Miru 要住在哪里？</h1>
+      <h1>S. Chat 要儲存在哪裡？</h1>
       <p class="sub" id="homeScopeCopy">你可以让她住在自己的私有服务器里，让多台设备看到同一个 Miru；也可以先只在这台电脑上使用，所有数据都留在本机。</p>
       <div class="choices">
         <button class="choice" type="button" onclick="showView('multi')">
@@ -902,7 +902,7 @@ body[data-view="api-setup"] .note {
         <button class="back" type="button" onclick="showView('home')" aria-label="返回">‹</button>
         <strong id="localToolbarTitle">只在这台电脑使用</strong>
       </div>
-      <h1 id="localHeading">让 Miru 住在这台电脑</h1>
+      <h1 id="localHeading">在這台電腦開始 S. Chat</h1>
       <p class="sub" id="localScopeCopy">本地模式会在这台电脑上创建一个本地账号。聊天、记忆和 API Key 都只写入本机数据目录；不能多设备同步。</p>
       <div class="message" id="localMsg" style="margin-top:14px"></div>
       <div class="inline-actions local-actions">
@@ -915,7 +915,7 @@ body[data-view="api-setup"] .note {
         <button class="back" type="button" onclick="showView('home')" aria-label="返回">‹</button>
         <strong>多设备同步使用</strong>
       </div>
-      <h1>你已经有 Miru 邀请码了吗？</h1>
+      <h1>你已經有帳號邀請碼了嗎？</h1>
       <p class="sub" id="multiScopeCopy">已有账号就直接输入长邀请码；还没有账号，可以使用官方服务器，或者让这台电脑帮你在自己的服务器上创建一个新的 Miru。</p>
       <div class="choices">
         <button class="choice" type="button" onclick="showView('invite')">
@@ -940,7 +940,7 @@ body[data-view="api-setup"] .note {
         <button class="back" type="button" onclick="showView('multi')" aria-label="返回">‹</button>
         <strong>输入邀请码</strong>
       </div>
-      <h1>让 Miru 回到你身边</h1>
+      <h1>登入 S. Chat</h1>
       <p class="sub">这里必须使用完整长邀请码。短码无法登录，请确认已经完整复制。</p>
       <form class="form" onsubmit="doInviteLogin(event)" autocomplete="off">
         <div class="field">
@@ -948,7 +948,7 @@ body[data-view="api-setup"] .note {
           <input id="codeInput" class="code-input" type="text" placeholder="MIRU-XXXXXXXXXX-YYYYYY" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false">
         </div>
         <div class="message" id="inviteMsg"></div>
-        <button class="btn" id="inviteBtn" type="submit" disabled>登录 Miru</button>
+        <button class="btn" id="inviteBtn" type="submit" disabled>登入 S. Chat</button>
       </form>
     </div>
 
@@ -995,7 +995,7 @@ body[data-view="api-setup"] .note {
         <button class="back" type="button" onclick="showView('new')" aria-label="返回">‹</button>
         <strong>自有服务器</strong>
       </div>
-      <h1>在你的服务器上创建 Miru</h1>
+      <h1>在你的伺服器上建立 S. Chat 帳號</h1>
       <p class="sub">自动安装 Docker 目前支持 Ubuntu / Debian；其他 Linux 请先安装 Docker 和 Docker Compose。先从 Miru 发布页下载服务包，再在这里选择它；创建完成后，Mac、Windows 和 Android 都用同一个长邀请码登录。</p>
       <div class="note">默认会从 5001 到 5010 中选择第一个空闲端口；如果 5001 已被占用，会使用后续端口。请在云安全组或防火墙放行实际端口。首次连接会信任这台服务器的指纹，请确认 IP 是你自己的云服务器。</div>
       <form class="form self-server-form" style="margin-top:16px" onsubmit="createSelfServer(event)" autocomplete="off">
@@ -1065,7 +1065,7 @@ body[data-view="api-setup"] .note {
         </details>
 
         <div class="message" id="selfMsg"></div>
-        <button class="btn" id="selfBtn" type="submit">创建 Miru</button>
+        <button class="btn" id="selfBtn" type="submit">建立帳號</button>
       </form>
       <div class="progress" id="selfProgress">
         <div class="deploy-head">
@@ -1097,7 +1097,7 @@ body[data-view="api-setup"] .note {
         </div>
         <div class="inline-actions">
           <button class="btn secondary" id="selfCopyInviteBtn" type="button" onclick="copySelfInvite()">复制邀请码</button>
-          <button class="btn" id="selfEnterBtn" type="button" onclick="enterSelfServer()">进入 Miru</button>
+          <button class="btn" id="selfEnterBtn" type="button" onclick="enterSelfServer()">進入 S. Chat</button>
         </div>
         <div class="message ok" id="selfSuccessMsg"></div>
       </div>
@@ -1105,11 +1105,11 @@ body[data-view="api-setup"] .note {
 
     <div id="view-api-setup" class="view">
       <h1>API Key</h1>
-      <p class="sub">Miru 需要视觉、聊天、记忆三组模型。保存后会逐项测试，全部通过后再进入应用。</p>
+      <p class="sub">S. Chat 故事模式只需要聊天模型。填入你已有的 API 資訊，儲存後會測試連線。</p>
       <div class="note" id="apiSetupScopeCopy">配置会写入刚创建的 Miru：本地模式存在这台电脑，自有服务器模式存在你的服务器。页面不会显示完整 API Key。</div>
       <div class="api-format-hint">服务地址填 OpenAI-compatible Base URL。</div>
       <div class="api-setup" style="margin-top:16px">
-        <div class="api-tier-card">
+        <div class="api-tier-card" data-legacy-tier="vision">
           <div class="api-tier-head">
             <strong>视觉模型</strong>
             <span>推荐 OpenRouter + Qwen VLM；也可以换成其他支持图片输入的模型</span>
@@ -1132,16 +1132,16 @@ body[data-view="api-setup"] .note {
         <div class="api-tier-card">
           <div class="api-tier-head">
             <strong>聊天模型</strong>
-            <span>推荐 DeepSeek Pro；也可以换成 GPT、Gemini 或其他强模型</span>
+            <span>支援 OpenAI 相容的聊天模型；角色對話會使用這組設定</span>
           </div>
           <div class="api-grid">
             <div class="field">
               <label for="apiChatHost">服务地址</label>
-              <input id="apiChatHost" type="text" placeholder="推荐示例：api.deepseek.com" autocomplete="off">
+              <input id="apiChatHost" type="text" placeholder="例如：api.deepseek.com" autocomplete="off">
             </div>
             <div class="field">
               <label for="apiChatModel">模型名称</label>
-              <input id="apiChatModel" type="text" placeholder="推荐示例：deepseek-v4-pro" autocomplete="off">
+              <input id="apiChatModel" type="text" placeholder="填入服務商提供的模型 ID" autocomplete="off">
             </div>
             <div class="field">
               <label for="apiChatKey">API Key</label>
@@ -1149,7 +1149,7 @@ body[data-view="api-setup"] .note {
             </div>
           </div>
         </div>
-        <div class="api-tier-card">
+        <div class="api-tier-card" data-legacy-tier="memory">
           <div class="api-tier-head">
             <strong>记忆模型</strong>
             <span>推荐 DeepSeek Flash；也可以换成性价比高的文本模型</span>
@@ -1172,7 +1172,7 @@ body[data-view="api-setup"] .note {
       </div>
       <div class="message" id="apiSetupMsg" style="margin-top:14px"></div>
       <div class="inline-actions" style="margin-top:16px">
-        <button class="btn" id="apiSetupSaveBtn" type="button" onclick="saveApiSetupAndEnter()">保存、测试并进入 Miru</button>
+        <button class="btn" id="apiSetupSaveBtn" type="button" onclick="saveApiSetupAndEnter()">儲存、測試並進入 S. Chat</button>
       </div>
     </div>
   </section>
@@ -1184,6 +1184,7 @@ body[data-view="api-setup"] .note {
   try {
     isAndroidClient = new URLSearchParams(window.location.search).get('android') === '1';
   } catch(e) {}
+
   if (isAndroidClient) {
     var androidCopy = {
       homeScopeCopy: '你可以让她住在自己的私有服务器里，让多台设备看到同一个 Miru；也可以先只在这部手机上使用，所有数据都留在本机。',
@@ -1211,11 +1212,21 @@ body[data-view="api-setup"] .note {
     }
   } catch(e) {}
 
+  if (desktopParams && desktopParams.desktop_platform === 'windows') {
+    document.querySelectorAll('[data-legacy-tier]').forEach(function(card){card.style.display = 'none';});
+    var storyScope = document.getElementById('apiSetupScopeCopy');
+    if (storyScope) storyScope.textContent = '故事模式的聊天模型設定只存放在這台電腦目前登入的使用者資料中；API Key 不會顯示在頁面上。';
+  }
+
   function withDesktopClientParams(target) {
     if (!desktopParams) return target;
     try {
       var absolute = /^https?:\/\//i.test(target);
       var url = new URL(target, window.location.origin);
+      if (desktopParams.desktop_platform === 'windows' && url.pathname === '/app') {
+        url = new URL('/s-chat' + url.search + url.hash, window.location.origin);
+        absolute = false;
+      }
       url.searchParams.set('desktop', desktopParams.desktop);
       url.searchParams.set('desktop_platform', desktopParams.desktop_platform);
       return absolute ? url.href : (url.pathname + url.search + url.hash);
@@ -1421,6 +1432,11 @@ body[data-view="api-setup"] .note {
   }
 
   function collectApiSetupPayloads() {
+    if (desktopParams && desktopParams.desktop_platform === 'windows') {
+      var storyChat = collectApiTier('apiChat', '聊天模型');
+      if (!storyChat) throw new Error('請填寫聊天模型的服務地址、模型 ID 與 API Key。');
+      return [['chat', storyChat]];
+    }
     var vision = collectApiTier('apiVision', '视觉模型');
     var chat = collectApiTier('apiChat', '聊天模型');
     var memory = collectApiTier('apiMemory', '记忆模型');
@@ -1436,6 +1452,16 @@ body[data-view="api-setup"] .note {
   }
 
   async function saveApiTier(tier, payload) {
+    if (desktopParams && desktopParams.desktop_platform === 'windows' && tier === 'chat') {
+      var localSaved = await fetch('/api/schat/model', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiSetupState.token},
+        body: JSON.stringify({host: payload.host, model: payload.model, api_key: payload.api_key})
+      });
+      var localData = await localSaved.json().catch(function(){ return {}; });
+      if (!localSaved.ok) throw new Error(localData.error || '聊天模型儲存失敗');
+      return;
+    }
     var base = (apiSetupState && apiSetupState.server_url) ? apiSetupState.server_url.replace(/\/+$/, '') : '';
     var headers = {
       'Content-Type': 'application/json',
@@ -1454,6 +1480,14 @@ body[data-view="api-setup"] .note {
   }
 
   async function testApiTier(tier) {
+    if (desktopParams && desktopParams.desktop_platform === 'windows' && tier === 'chat') {
+      var localTest = await fetch('/api/schat/model/test', {
+        method: 'POST', headers: {'Authorization': 'Bearer ' + apiSetupState.token}
+      });
+      var localResult = await localTest.json().catch(function(){ return {}; });
+      if (!localTest.ok) throw new Error(localResult.error || '聊天模型連線測試失敗');
+      return localResult;
+    }
     var base = (apiSetupState && apiSetupState.server_url) ? apiSetupState.server_url.replace(/\/+$/, '') : '';
     var label = API_TIER_LABELS[tier] || tier;
     var headers = {
@@ -1545,7 +1579,7 @@ body[data-view="api-setup"] .note {
       apiSetupBusy = false;
       if (apiSetupSaveBtn) {
         apiSetupSaveBtn.disabled = false;
-        apiSetupSaveBtn.textContent = '保存、测试并进入 Miru';
+        apiSetupSaveBtn.textContent = '儲存、測試並進入 S. Chat';
       }
     }
   };

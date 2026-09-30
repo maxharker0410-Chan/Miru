@@ -30,7 +30,7 @@ def test_linux_startup_failures_remain_visible_in_terminal(monkeypatch, tmp_path
     monkeypatch.setitem(sys.modules, "app", SimpleNamespace(run_client_mode=lambda *args: None))
     try:
         assert windows_launcher.main(platform_name="linux") == 1
-        expected = "Port 5001 is already in use" if failure == "port-conflict" else "Miru local service did not start"
+        expected = "Port 5001 is already in use" if failure == "port-conflict" else "S. Chat local service did not start"
         assert expected in terminal.getvalue()
         assert sys.stderr is terminal
     finally:

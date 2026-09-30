@@ -64,13 +64,11 @@ def _desktop_url(url: str) -> str:
 
 
 def _initial_url(config: dict, cache_buster: int | None = None) -> str:
-    server_url = str(config.get("server_url") or "").rstrip("/")
     token = str(config.get("auth_token") or "")
     cache_buster = cache_buster or int(time.time())
     if token and _setup_complete_from_config(config):
-        base = server_url or f"http://127.0.0.1:{PORT}"
         return _desktop_url(
-            f"{base}/app?token={quote(token)}&v={cache_buster}"
+            f"http://127.0.0.1:{PORT}/s-chat?token={quote(token)}&v={cache_buster}"
         )
     return _desktop_url(f"http://127.0.0.1:{PORT}/login")
 
@@ -142,7 +140,7 @@ def _show_error(message: str) -> None:
     try:
         import ctypes
 
-        ctypes.windll.user32.MessageBoxW(None, message, "Miru", 0x10)
+        ctypes.windll.user32.MessageBoxW(None, message, "S. Chat", 0x10)
     except Exception:
         pass
 
@@ -252,9 +250,11 @@ def _stop_runtime(app_module, state: dict) -> None:
 
 
 def _webview_bootstrap_ready(window) -> bool:
-    """Return true once the visible /app finished its own data bootstrap."""
+    """Return true when the story studio or legacy app has loaded."""
     try:
         current = str(window.get_current_url() or "")
+        if urlsplit(current).path == "/s-chat":
+            return True
         if urlsplit(current).path != "/app":
             return False
         return bool(
@@ -294,7 +294,10 @@ def _runtime_coordinator(window, app_module, state: dict) -> None:
             # missed. Confirm bootstrap from the owning launcher as a fallback.
             if wants_pet and not state.get("app_ready"):
                 state["app_ready"] = _webview_bootstrap_ready(window)
-            if wants_pet and state.get("app_ready") and not state.get("pet_launched"):
+            # S. Chat is a staged story window. The legacy floating pet is
+            # deliberately not started over its scenes.
+            on_legacy_app = urlsplit(str(window.get_current_url() or "")).path == "/app"
+            if wants_pet and on_legacy_app and state.get("app_ready") and not state.get("pet_launched"):
                 app_module._launch_pet_requested.clear()
                 app_module._kill_pet()
                 app_module._launch_full_stack()
@@ -319,7 +322,7 @@ def main(platform_name: str = "windows") -> int:
     if _existing_instance_ready():
         return 0
     if _port_in_use():
-        _show_error("Port 5001 is already in use. Close the other program and start Miru again.")
+        _show_error("Port 5001 is already in use. Close the other program and start S. Chat again.")
         return 1
 
     root = _bundle_dir()
@@ -332,6 +335,8 @@ def main(platform_name: str = "windows") -> int:
     persistent_data = data_dir()
     persistent_data.mkdir(parents=True, exist_ok=True)
     os.environ["DATA_DIR"] = str(persistent_data)
+    if platform_name == "windows":
+        os.environ["S_CHAT_STORY_MODE"] = "1"
 
     import app as app_module
 
@@ -353,14 +358,14 @@ def main(platform_name: str = "windows") -> int:
     )
     backend_thread.start()
     if not _wait_for_flask():
-        _show_error(f"Miru local service did not start. See {support / 'logs' / 'miru.log'}.")
+        _show_error(f"S. Chat local service did not start. See {support / 'logs' / 'miru.log'}.")
         return 1
 
     import webview
 
     api = MiruDesktopApi(app_module, state)
     window = webview.create_window(
-        "Miru",
+        "S. Chat",
         _initial_url(config),
         js_api=api,
         width=1200,
@@ -375,7 +380,9 @@ def main(platform_name: str = "windows") -> int:
 
     def on_loaded():
         current = window.get_current_url() or ""
-        state["app_ready"] = False if "/app" not in current else state["app_ready"]
+        state["app_ready"] = urlsplit(current).path == "/s-chat" or (
+            urlsplit(current).path == "/app" and state["app_ready"]
+        )
         try:
             script = _remote_outfit_bridge_script(current, config)
             if script:

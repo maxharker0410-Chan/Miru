@@ -1,6 +1,7 @@
 param(
     [switch]$SkipDependencies,
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [switch]$IncludeLegacyPet
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,26 +40,30 @@ if (-not $SkipDependencies) {
     if ($LASTEXITCODE -ne 0) { throw "Installing Python dependencies failed (exit $LASTEXITCODE)." }
 }
 
-$Cargo = Resolve-CommandPath @("cargo")
-if (-not $Cargo) {
-    $Cargo = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
-}
-if (-not (Test-Path $Cargo)) { throw "Rust cargo is required on the Windows build machine." }
+if ($IncludeLegacyPet) {
+    $Cargo = Resolve-CommandPath @("cargo")
+    if (-not $Cargo) {
+        $Cargo = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
+    }
+    if (-not (Test-Path $Cargo)) { throw "Rust cargo is required on the Windows build machine." }
 
-& $Cargo test --manifest-path (Join-Path $Root "src-tauri\Cargo.toml")
-if ($LASTEXITCODE -ne 0) { throw "Windows pet tests failed (exit $LASTEXITCODE)." }
-& $Cargo build --release --manifest-path (Join-Path $Root "src-tauri\Cargo.toml")
-if ($LASTEXITCODE -ne 0) { throw "Windows pet build failed (exit $LASTEXITCODE)." }
+    & $Cargo test --manifest-path (Join-Path $Root "src-tauri\Cargo.toml")
+    if ($LASTEXITCODE -ne 0) { throw "Windows pet tests failed (exit $LASTEXITCODE)." }
+    & $Cargo build --release --manifest-path (Join-Path $Root "src-tauri\Cargo.toml")
+    if ($LASTEXITCODE -ne 0) { throw "Windows pet build failed (exit $LASTEXITCODE)." }
+}
 
 Remove-Item -Recurse -Force (Join-Path $Root "build\miru_windows") -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force (Join-Path $Root "dist\Miru") -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $Root "dist\S.Chat") -ErrorAction SilentlyContinue
 & $VenvPython -m PyInstaller miru_windows.spec --clean --noconfirm --workpath build\miru_windows
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed (exit $LASTEXITCODE)." }
 
-$PetSource = Join-Path $Root "src-tauri\target\release\app.exe"
-$PetTarget = Join-Path $Root "dist\Miru\miru-pet.exe"
-if (-not (Test-Path $PetSource)) { throw "Tauri pet binary was not produced: $PetSource" }
-Copy-Item $PetSource $PetTarget -Force
+if ($IncludeLegacyPet) {
+    $PetSource = Join-Path $Root "src-tauri\target\release\app.exe"
+    $PetTarget = Join-Path $Root "dist\S.Chat\miru-pet.exe"
+    if (-not (Test-Path $PetSource)) { throw "Tauri pet binary was not produced: $PetSource" }
+    Copy-Item $PetSource $PetTarget -Force
+}
 
 if (-not $SkipInstaller) {
     $IsccCandidates = @(
