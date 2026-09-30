@@ -51,12 +51,12 @@ if ($LASTEXITCODE -ne 0) { throw "Windows pet tests failed (exit $LASTEXITCODE).
 if ($LASTEXITCODE -ne 0) { throw "Windows pet build failed (exit $LASTEXITCODE)." }
 
 Remove-Item -Recurse -Force (Join-Path $Root "build\miru_windows") -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force (Join-Path $Root "dist\Miru") -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $Root "dist\S.Chat") -ErrorAction SilentlyContinue
 & $VenvPython -m PyInstaller miru_windows.spec --clean --noconfirm --workpath build\miru_windows
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed (exit $LASTEXITCODE)." }
 
 $PetSource = Join-Path $Root "src-tauri\target\release\app.exe"
-$PetTarget = Join-Path $Root "dist\Miru\miru-pet.exe"
+$PetTarget = Join-Path $Root "dist\S.Chat\miru-pet.exe"
 if (-not (Test-Path $PetSource)) { throw "Tauri pet binary was not produced: $PetSource" }
 Copy-Item $PetSource $PetTarget -Force
 

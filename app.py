@@ -43,6 +43,7 @@ import ai_config
 import server_config
 import user_settings
 import self_profile
+import story_engine
 from character import get_config, reload_config, SOUL_PATH
 app = Flask(__name__)
 Compress(app)
@@ -553,6 +554,123 @@ def app_page():
     resp = app.make_response(render_template("index.html", build_version=_get_version()))
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
+
+
+@app.route("/s-chat")
+def s_chat_page():
+    """S. Chat story studio and scene player."""
+    resp = app.make_response(render_template("s-chat.html"))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def _story_user_dir():
+    return getattr(g, "user_data_dir", None)
+
+
+@app.errorhandler(story_engine.StoryError)
+def _story_error(error):
+    return jsonify({"error": str(error)}), 400
+
+
+@app.route("/api/schat/model", methods=["GET", "PUT"])
+def api_schat_model():
+    if request.method == "GET":
+        return jsonify(story_engine.model_status(_story_user_dir()))
+    return jsonify(story_engine.save_model(_story_user_dir(), request.get_json(silent=True)))
+
+
+@app.route("/api/schat/model/test", methods=["POST"])
+def api_schat_model_test():
+    try:
+        answer = story_engine._model(_story_user_dir(), "只輸出 JSON：{\"ok\":true}", "測試連線", "schat_test")
+        if not isinstance(answer, dict):
+            raise ValueError("回覆格式錯誤")
+        return jsonify({"ok": True})
+    except Exception as error:
+        app.logger.warning("S. Chat model test failed: %s", error)
+        return jsonify({"error": "模型連線失敗，請檢查服務地址、模型 ID 和 API Key。"}), 502
+
+
+@app.route("/api/schat/stories", methods=["GET", "POST"])
+def api_schat_stories():
+    if request.method == "GET":
+        return jsonify({"stories": story_engine.list_stories(_story_user_dir())})
+    return jsonify(story_engine.save_story(_story_user_dir(), request.get_json(silent=True))), 201
+
+
+@app.route("/api/schat/stories/<story_id>", methods=["GET", "PUT", "DELETE"])
+def api_schat_story(story_id):
+    if request.method == "GET":
+        return jsonify(story_engine.get_story(_story_user_dir(), story_id))
+    if request.method == "DELETE":
+        story_engine.delete_story(_story_user_dir(), story_id)
+        return jsonify({"ok": True})
+    return jsonify(story_engine.save_story(_story_user_dir(), request.get_json(silent=True), story_id))
+
+
+@app.route("/api/schat/stories/<story_id>/sessions", methods=["POST"])
+def api_schat_start(story_id):
+    return jsonify(story_engine.start_session(_story_user_dir(), story_id)), 201
+
+
+@app.route("/api/schat/stories/<story_id>/sessions/<session_id>")
+def api_schat_session(story_id, session_id):
+    return jsonify(story_engine.get_session(_story_user_dir(), story_id, session_id))
+
+
+@app.route("/api/schat/stories/<story_id>/sessions/<session_id>/advance", methods=["POST"])
+def api_schat_advance(story_id, session_id):
+    body = request.get_json(silent=True) or {}
+    return jsonify(story_engine.advance(_story_user_dir(), story_id, session_id, body.get("scene_id")))
+
+
+@app.route("/api/schat/stories/<story_id>/sessions/<session_id>/turn", methods=["POST"])
+def api_schat_turn(story_id, session_id):
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(story_engine.take_turn(_story_user_dir(), story_id, session_id, body.get("text")))
+    except story_engine.StoryError:
+        raise
+    except Exception as error:
+        app.logger.warning("S. Chat model error: %s", error)
+        return jsonify({"error": "角色暫時無法回應，請檢查聊天模型設定後重試。"}), 502
+
+
+@app.route("/api/schat/assets", methods=["POST"])
+def api_schat_upload():
+    from io import BytesIO
+    from PIL import Image, UnidentifiedImageError
+    import uuid
+    uploaded = request.files.get("image")
+    if not uploaded or (request.content_length or 0) > 9 * 1024 * 1024:
+        return jsonify({"error": "請上傳小於 8 MB 的 PNG、JPG 或 WebP 圖片"}), 400
+    raw = uploaded.read(8 * 1024 * 1024 + 1)
+    if len(raw) > 8 * 1024 * 1024:
+        return jsonify({"error": "圖片超過 8 MB"}), 400
+    try:
+        with Image.open(BytesIO(raw)) as image:
+            image.verify()
+        with Image.open(BytesIO(raw)) as image:
+            if image.width > 6000 or image.height > 6000:
+                raise ValueError("圖片尺寸超過限制")
+            ext = {"PNG": "png", "JPEG": "jpg", "WEBP": "webp"}.get(image.format)
+    except (UnidentifiedImageError, OSError, ValueError):
+        ext = None
+    if not ext:
+        return jsonify({"error": "圖片格式或尺寸不支援"}), 400
+    root = story_engine._root(_story_user_dir()) / "media"
+    root.mkdir(parents=True, exist_ok=True)
+    name = uuid.uuid4().hex + "." + ext
+    (root / name).write_bytes(raw)
+    return jsonify({"file": name, "url": "/api/schat/assets/" + name}), 201
+
+
+@app.route("/api/schat/assets/<name>")
+def api_schat_asset(name):
+    if not story_engine._IMAGE.fullmatch(name):
+        return jsonify({"error": "無效圖片"}), 404
+    return send_from_directory(story_engine._root(_story_user_dir()) / "media", name)
 
 
 @app.route("/login")

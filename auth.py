@@ -1268,7 +1268,7 @@ def check_request(req=None):
     # /app      → web app shell with login screen (anonymous; client JS handles token)
     # /login    → DMG invitation code entry page (anonymous; POSTs to /api/auth/login)
     # /pet      → desktop pet shell (auth handled by URL token param)
-    if path in ("/", "/app", "/login", "/pet", "/privacy") or any(path.startswith(p) for p in _EXEMPT_PREFIXES):
+    if path in ("/", "/app", "/s-chat", "/login", "/pet", "/privacy") or any(path.startswith(p) for p in _EXEMPT_PREFIXES):
         _set_anonymous_context()
         return None
 

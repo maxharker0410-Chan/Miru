@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for the x64 Windows Miru desktop client."""
+"""PyInstaller spec for the x64 Windows S. Chat desktop client."""
 
 import os
 
@@ -62,6 +62,7 @@ a = Analysis(
         "sse",
         "model_library",
         "prompt",
+        "story_engine",
         "memory_prompts",
         "memory",
         "core_memory",
@@ -100,8 +101,8 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Miru",
-    icon="src-tauri/icons/icon.ico",
+    name="S.Chat",
+    icon="assets/brand/schat.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -115,5 +116,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="Miru",
+    name="S.Chat",
 )
