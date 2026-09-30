@@ -335,6 +335,8 @@ def main(platform_name: str = "windows") -> int:
     persistent_data = data_dir()
     persistent_data.mkdir(parents=True, exist_ok=True)
     os.environ["DATA_DIR"] = str(persistent_data)
+    if platform_name == "windows":
+        os.environ["S_CHAT_STORY_MODE"] = "1"
 
     import app as app_module
 

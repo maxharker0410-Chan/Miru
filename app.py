@@ -918,6 +918,8 @@ def _start_local_single_device_backend_services_once(
     otherwise append-only slot bodies never get their daily compaction pass.
     """
     global _client_local_backend_services_started, _client_local_runtime_user_id
+    if os.environ.get("S_CHAT_STORY_MODE") == "1":
+        return False
     if not (_is_client_mode and _is_local_single_device_mode()):
         return False
 
@@ -4662,6 +4664,12 @@ def run_client_mode(server_url: str = "", auth_token: str = "", port: int = 5001
         if not _user_verified:
             print("[Client] Skipping sensor — user not verified. "
                   "Sensor will start after successful login via WebView.")
+            return
+
+        # The story studio has its own per-character memory and does not need
+        # the legacy pet, screen sensor, or nightly Miru maintenance loops.
+        if os.environ.get("S_CHAT_STORY_MODE") == "1":
+            print("[Client] S. Chat story mode ready (legacy background services disabled)")
             return
 
         if _is_local_single_device_mode():
