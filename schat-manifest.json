@@ -1,0 +1,16 @@
+{
+  "id": "/s-chat",
+  "name": "S. Chat 故事工作室",
+  "short_name": "S. Chat",
+  "description": "自訂故事、動態角色圖片與獨立記憶",
+  "lang": "zh-Hant",
+  "start_url": "/s-chat",
+  "scope": "/s-chat",
+  "display": "standalone",
+  "background_color": "#0b0914",
+  "theme_color": "#171322",
+  "icons": [
+    {"src": "/assets/brand/schat-pwa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/assets/brand/schat-pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}

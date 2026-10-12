@@ -157,6 +157,11 @@ def _after_request(response):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+        if (request.path.startswith("/api/schat/assets/") and response.status_code == 200):
+            # Immutable UUID filenames; cache per browser/account, never in shared caches.
+            response.headers["Cache-Control"] = "private, max-age=86400"
+            response.headers.pop("Pragma", None)
+            response.headers.pop("Expires", None)
     return response
 
 _BUILD_VERSION = None
@@ -564,13 +569,59 @@ def s_chat_page():
     return resp
 
 
+@app.route("/s-chat/manifest.json")
+def schat_manifest():
+    return send_from_directory(_bundled_resource_root(), "schat-manifest.json",
+                               mimetype="application/manifest+json")
+
+
+@app.route("/s-chat/service-worker.js")
+def schat_service_worker():
+    resp = send_from_directory(_bundled_resource_root(), "schat-service-worker.js",
+                               mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/s-chat"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.route("/api/schat/account")
+def api_schat_account():
+    return jsonify({"user_id": g.user_id})
+
+
 def _story_user_dir():
     return getattr(g, "user_data_dir", None)
 
 
 @app.errorhandler(story_engine.StoryError)
 def _story_error(error):
-    return jsonify({"error": str(error)}), 400
+    from world_runtime import ConflictError
+    return jsonify({"error": str(error)}), 409 if isinstance(error, ConflictError) else 400
+
+
+@app.route("/api/schat/world-import", methods=["POST"])
+def api_schat_world_import():
+    from world_import import import_packages, MAX_UPLOAD
+    request.max_content_length = MAX_UPLOAD
+    if (request.content_length or 0) > MAX_UPLOAD:
+        return jsonify({"error":"兩份 ZIP 合計請小於 512 MB。"}), 413
+    world = request.files.get("world_zip")
+    images = request.files.get("images_zip")
+    if not world or not images:
+        return jsonify({"error":"請一次選擇世界資料包及 WebP 圖片包。"}), 400
+    try:
+        result = import_packages(_story_user_dir(), world.stream, images.stream)
+    except story_engine.StoryError:
+        raise
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error":"資料包索引格式不完整，既有故事與紀錄未變更。"}), 400
+    return jsonify(result), 200 if result["already_imported"] else 201
+
+
+@app.route("/api/schat/stories/<story_id>/sessions/<session_id>/world-action", methods=["POST"])
+def api_schat_world_action(story_id, session_id):
+    import world_runtime
+    return jsonify(world_runtime.action(_story_user_dir(), story_id, session_id, request.get_json(silent=True)))
 
 
 @app.route("/api/schat/model", methods=["GET", "PUT"])
@@ -609,8 +660,10 @@ def api_schat_story(story_id):
     return jsonify(story_engine.save_story(_story_user_dir(), request.get_json(silent=True), story_id))
 
 
-@app.route("/api/schat/stories/<story_id>/sessions", methods=["POST"])
+@app.route("/api/schat/stories/<story_id>/sessions", methods=["GET", "POST"])
 def api_schat_start(story_id):
+    if request.method == "GET":
+        return jsonify({"sessions": story_engine.list_sessions(_story_user_dir(), story_id)})
     return jsonify(story_engine.start_session(_story_user_dir(), story_id)), 201
 
 
@@ -622,14 +675,23 @@ def api_schat_session(story_id, session_id):
 @app.route("/api/schat/stories/<story_id>/sessions/<session_id>/advance", methods=["POST"])
 def api_schat_advance(story_id, session_id):
     body = request.get_json(silent=True) or {}
-    return jsonify(story_engine.advance(_story_user_dir(), story_id, session_id, body.get("scene_id")))
+    return jsonify(story_engine.advance(_story_user_dir(), story_id, session_id, body.get("scene_id"),
+                   body.get("event_id"), body.get("base_revision")))
+
+
+@app.route("/api/schat/stories/<story_id>/sessions/<session_id>/visuals", methods=["PATCH"])
+def api_schat_visuals(story_id, session_id):
+    body = request.get_json(silent=True) or {}
+    return jsonify(story_engine.set_visual(_story_user_dir(), story_id, session_id,
+                   body.get("character_id"), body.get("state_id"), body.get("locked")))
 
 
 @app.route("/api/schat/stories/<story_id>/sessions/<session_id>/turn", methods=["POST"])
 def api_schat_turn(story_id, session_id):
     body = request.get_json(silent=True) or {}
     try:
-        return jsonify(story_engine.take_turn(_story_user_dir(), story_id, session_id, body.get("text")))
+        return jsonify(story_engine.take_turn(_story_user_dir(), story_id, session_id, body.get("text"),
+                       event_id=body.get("event_id"), base_revision=body.get("base_revision")))
     except story_engine.StoryError:
         raise
     except Exception as error:
@@ -2872,6 +2934,15 @@ def serve_android_lifecycle_shim():
     return send_from_directory(
         os.path.join(_bundled_resource_root(), "assets", "js"),
         "android-lifecycle-shim.js",
+        mimetype="application/javascript",
+    )
+
+
+@app.route("/assets/js/schat.js")
+@app.route("/assets/js/schat-library.js")
+def serve_schat_js():
+    return send_from_directory(
+        os.path.join(_bundled_resource_root(), "assets", "js"), request.path.rsplit("/", 1)[-1],
         mimetype="application/javascript",
     )
 

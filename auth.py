@@ -1194,6 +1194,7 @@ def _cleanup_user_singletons(user_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 _EXEMPT_PREFIXES = (
+    "/s-chat/",
     "/_page/",
     "/assets/",
     "/icon-",
