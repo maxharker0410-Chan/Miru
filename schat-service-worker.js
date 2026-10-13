@@ -1,6 +1,6 @@
 // Only public application files belong in Cache Storage. Account snapshots are
 // stored by the page under a credential-specific namespace, never API responses.
-const CACHE_NAME = 'schat-shell-world-import-v1';
+const CACHE_NAME = 'schat-shell-world-import-v2';
 const SHELL = '/s-chat';
 const STATIC = [SHELL, '/assets/js/schat.js', '/assets/js/schat-library.js', '/s-chat/manifest.json',
   '/assets/brand/schat-pwa-192.png', '/assets/brand/schat-pwa-512.png'];

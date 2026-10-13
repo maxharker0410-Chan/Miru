@@ -218,6 +218,202 @@ def test_remote_mentions_do_not_spawn_and_failure_does_not_save(imported):
     assert before == path.read_bytes()
 
 
+def narrative_turn(imported, text, direction, actor=None):
+    root, story, initial = imported
+    current = engine.get_session(root, story['id'], initial['id'])
+    def generate(system, user, label):
+        if label == 'schat_director':
+            return direction
+        payload = json.loads(user)
+        return actor(payload) if actor else {'text':'我就在這裡。'}
+    return engine.take_turn(root, story['id'], initial['id'], text, generate,
+        event_id='narrative_' + str(current['world_state']['revision']), base_revision=current['world_state']['revision'])
+
+
+def test_narrative_arrival_moves_background_companion_and_resume_together(imported):
+    root, story, initial = imported
+    apply(imported, 'arrive', character_id='char_06_rune')
+    apply(imported, 'arrive', character_id='char_03_guild_head')
+    before = engine.get_session(root, story['id'], initial['id'])
+    before['memories']['char_06_rune'] = ['只屬於符文研究者的記憶']
+    engine._write(engine._session_path(root, story['id'], initial['id']), before)
+    seen = []
+    def actor(payload):
+        seen.append(payload)
+        return {'text':'我們已經走到圖書館。', 'remember':['和玩家來到圖書館。']}
+    moved = narrative_turn(imported, '我和符文研究者一起走到星輝圖書館。', {
+        'next_scene_id':'loc_02_library', 'travel_status':'arrived',
+        'traveling_ids':['char_06_rune'], 'present_ids':['char_06_rune'],
+        'speaker_ids':['char_06_rune'], 'situation':'兩人在圖書館門口。'}, actor)
+    assert moved['scene_id'] == moved['world_state']['player']['location_id'] == 'loc_02_library'
+    assert moved['cast'] == moved['world_state']['party_character_ids'] == ['char_06_rune']
+    assert moved['world_state']['characters']['char_06_rune']['location_id'] == 'loc_02_library'
+    assert moved['world_state']['characters']['char_03_guild_head']['location_id'] == 'loc_03_guild'
+    assert moved['world_state']['pending_travel'] is None
+    assert engine._scene(story, moved['scene_id'])['background']
+    assert seen[0]['scene']['id'] == 'loc_02_library' and seen[0]['pending_travel'] is None
+    assert moved['memories']['char_06_rune'][0] == '只屬於符文研究者的記憶'
+    assert [m['speaker'] for m in moved['messages'][-3:]] == ['player', 'narrator', 'char_06_rune']
+    assert all(m['scene_id'] == 'loc_02_library' for m in moved['messages'][-3:])
+    assert engine.get_session(root, story['id'], initial['id']) == moved
+    def no_call(*args):
+        raise AssertionError('an arrival retry must not call the model again')
+    assert engine.take_turn(root, story['id'], initial['id'], '重試', no_call,
+        event_id='narrative_' + str(before['world_state']['revision']), base_revision=0) == moved
+
+
+def test_proposal_stays_here_and_manual_confirmation_keeps_named_companion(imported):
+    apply(imported, 'arrive', character_id='char_06_rune')
+    seen = []
+    def actor(payload):
+        seen.append(payload)
+        return {'text':'我們先討論路線，還沒出發。'}
+    proposed = narrative_turn(imported, '我想明天和她一起去圖書館。', {
+        'next_scene_id':'loc_02_library', 'travel_status':'proposed',
+        'traveling_ids':['char_06_rune'], 'present_ids':['char_06_rune']}, actor)
+    assert proposed['scene_id'] == 'loc_03_guild'
+    assert seen[0]['scene']['id'] == 'loc_03_guild'
+    assert proposed['world_state']['pending_travel']['companion_ids'] == ['char_06_rune']
+    moved = apply(imported, 'travel', location_id='loc_02_library')
+    assert moved['cast'] == moved['world_state']['party_character_ids'] == ['char_06_rune']
+
+
+def test_reselect_current_destination_preserves_nonparty_cast_and_dialogue(imported):
+    apply(imported, 'arrive', character_id='char_03_guild_head')
+    root, story, initial = imported
+    before = engine.get_session(root, story['id'], initial['id'])
+    before['situation'] = '正在公會私下交談。'
+    engine._write(engine._session_path(root, story['id'], initial['id']), before)
+    repeated = apply(imported, 'travel', location_id='loc_03_guild')
+    assert repeated['cast'] == before['cast'] == ['char_03_guild_head']
+    assert repeated['situation'] == before['situation']
+    assert repeated['messages'] == before['messages']
+    assert repeated['world_state']['characters'] == before['world_state']['characters']
+
+
+def test_silent_travelers_stay_until_explicitly_left_behind(imported):
+    for cid in ('char_06_rune', 'char_03_guild_head'):
+        apply(imported, 'arrive', character_id=cid)
+    moved = narrative_turn(imported, '我們三人一起來到圖書館。', {
+        'next_scene_id':'loc_02_library', 'travel_status':'arrived',
+        'traveling_ids':['char_06_rune', 'char_03_guild_head'], 'present_ids':['char_06_rune'],
+        'speaker_ids':['char_06_rune']})
+    assert set(moved['cast']) == {'char_06_rune', 'char_03_guild_head'}
+    private = narrative_turn(imported, '公會會長留在圖書館，我和符文研究者回公會。', {
+        'next_scene_id':'loc_03_guild', 'travel_status':'arrived', 'traveling_ids':['char_06_rune'],
+        'leave_ids':['char_03_guild_head'], 'present_ids':['char_06_rune']})
+    assert private['cast'] == private['world_state']['party_character_ids'] == ['char_06_rune']
+    assert private['world_state']['characters']['char_03_guild_head']['location_id'] == 'loc_02_library'
+
+
+def test_auto_arrival_cannot_teleport_remote_or_nonfollowable_characters(imported):
+    root, story, initial = imported
+    for scene in story['scenes']:
+        if scene['id'] == 'loc_02_library':
+            scene['region_id'] = 'region_01'
+    next(c for c in story['characters'] if c['id'] == 'char_03_guild_head')['identity']['follower_candidate'] = False
+    engine._write(engine._story_path(root, story['id']), story)
+    apply(imported, 'arrive', character_id='char_06_rune')
+    apply(imported, 'arrive', character_id='char_03_guild_head')
+    moved = narrative_turn(imported, '我和符文研究者來到圖書館。', {
+        'next_scene_id':'loc_02_library', 'travel_status':'arrived',
+        'traveling_ids':['char_06_rune', 'char_03_guild_head', 'char_01_f03'],
+        'present_ids':['char_06_rune', 'char_03_guild_head', 'char_01_f03']})
+    assert moved['cast'] == ['char_06_rune']
+    assert moved['world_state']['characters']['char_03_guild_head']['location_id'] == 'loc_03_guild'
+    assert moved['world_state']['characters']['char_01_f03']['location_id'] is None
+    assert {c['id'] for c in world_runtime.eligible(story, moved)} == {'char_06_rune'}
+
+
+def test_failed_actor_after_auto_arrival_does_not_save_half_movement(imported):
+    root, story, initial = imported
+    apply(imported, 'arrive', character_id='char_06_rune')
+    path = engine._session_path(root, story['id'], initial['id'])
+    before = path.read_bytes()
+    def fail(payload):
+        assert payload['scene']['id'] == 'loc_02_library'
+        raise RuntimeError('provider failed after arrival')
+    with pytest.raises(RuntimeError):
+        narrative_turn(imported, '我們一起到圖書館。', {
+            'next_scene_id':'loc_02_library', 'travel_status':'arrived',
+            'traveling_ids':['char_06_rune'], 'present_ids':['char_06_rune']}, fail)
+    assert path.read_bytes() == before
+
+
+def test_npc_cross_region_quest_requires_observed_travel_and_saves_its_reason(imported):
+    root, story, initial = imported
+    engine._scene(story, 'loc_02_library')['region_id'] = 'region_01'
+    engine._write(engine._story_path(root, story['id']), story)
+    apply(imported, 'arrive', character_id='char_06_rune')
+    evidence = '符文研究者已出發前往圖書館研究古代符文。'
+    departed = narrative_turn(imported, evidence, {'present_ids':[], 'character_journeys':[{
+        'character_id':'char_06_rune', 'location_id':'loc_02_library', 'purpose':'quest',
+        'status':'departed', 'evidence':evidence}]})
+    assert departed['world_state']['characters']['char_06_rune']['availability'] == 'traveling'
+    assert 'char_06_rune' not in {c['id'] for c in world_runtime.eligible(story, departed)}
+    apply(imported, 'travel', location_id='loc_02_library')
+    evidence = '她完成旅程，已抵達圖書館繼續研究任務。'
+    arrived = narrative_turn(imported, evidence, {'present_ids':['char_06_rune'], 'character_journeys':[{
+        'character_id':'char_06_rune', 'location_id':'loc_02_library', 'purpose':'quest',
+        'status':'arrived', 'evidence':evidence}]})
+    assert arrived['cast'] == ['char_06_rune'] and arrived['world_state']['party_character_ids'] == []
+    assert arrived['world_state']['characters']['char_06_rune']['journey']['evidence'] == evidence
+    assert engine.get_session(root, story['id'], initial['id']) == arrived
+
+
+def test_invented_quest_cannot_move_an_unseen_remote_character(imported):
+    apply(imported, 'arrive', character_id='char_03_guild_head')
+    result = narrative_turn(imported, '我們在公會談話。', {'present_ids':['char_03_guild_head'],
+        'character_journeys':[{'character_id':'char_01_f03', 'location_id':'loc_02_library',
+            'purpose':'quest', 'status':'arrived', 'evidence':'她突然出現執行不曾提過的秘密任務。'}]})
+    assert result['world_state']['characters']['char_01_f03']['location_id'] is None
+    assert 'journey' not in result['world_state']['characters']['char_01_f03']
+
+
+def test_arrival_presence_prioritizes_companions_over_duplicate_solo_journey(imported):
+    apply(imported, 'arrive', character_id='char_06_rune')
+    evidence = '我們一起走到星輝圖書館，已經抵達門口。'
+    # Real directors sometimes omit traveling_ids and also describe the same
+    # character as taking an independent trip. The displayed co-arrival wins.
+    result = narrative_turn(imported, evidence, {
+        'next_scene_id':'loc_02_library', 'travel_status':'arrived', 'present_ids':['char_06_rune'],
+        'character_journeys':[{'character_id':'char_06_rune', 'location_id':'loc_02_library',
+            'purpose':'adventure', 'status':'arrived', 'evidence':evidence}]})
+    assert result['cast'] == result['world_state']['party_character_ids'] == ['char_06_rune']
+    assert 'journey' not in result['world_state']['characters']['char_06_rune']
+    assert result['world_state']['events'][-1]['character_journeys'] == []
+
+
+def test_offscreen_party_members_keep_membership_but_do_not_teleport(imported):
+    for cid in ('char_06_rune','char_03_guild_head'):
+        apply(imported, 'arrive', character_id=cid)
+        apply(imported, 'join', character_id=cid)
+    private = narrative_turn(imported, '我暫時單獨和符文研究者談話。', {'present_ids':['char_06_rune']})
+    assert set(private['world_state']['party_character_ids']) == {'char_06_rune','char_03_guild_head'}
+    moved = narrative_turn(imported, '我和符文研究者來到圖書館。', {
+        'next_scene_id':'loc_02_library','travel_status':'arrived','present_ids':['char_06_rune']})
+    assert moved['cast'] == ['char_06_rune']
+    assert moved['world_state']['characters']['char_03_guild_head']['location_id'] == 'loc_03_guild'
+    assert set(moved['world_state']['party_character_ids']) == {'char_06_rune','char_03_guild_head'}
+
+
+def test_unknown_remote_party_member_is_not_an_on_screen_candidate(imported):
+    root, story, initial = imported
+    next(c for c in story['characters'] if c['id'] == 'char_01_f03')['region_id'] = 'region_01'
+    engine._write(engine._story_path(root,story['id']),story)
+    current = engine.get_session(root,story['id'],initial['id'])
+    current['world_state']['party_character_ids'] = ['char_01_f03']
+    engine._write(engine._session_path(root,story['id'],initial['id']),current)
+    def generate(system,user,label):
+        assert label == 'schat_director'
+        assert 'char_01_f03' not in [c['id'] for c in json.loads(user)['available_characters']]
+        return {'present_ids':['char_01_f03']}
+    result = engine.take_turn(root,story['id'],initial['id'],'提到遠方的隊友',generate,
+        event_id='remote_party',base_revision=0)
+    assert result['cast'] == [] and result['world_state']['characters']['char_01_f03']['location_id'] is None
+    assert result['world_state']['party_character_ids'] == ['char_01_f03']
+
+
 def test_world_save_cannot_strip_metadata_or_replace_stable_ids(imported):
     root,story,initial = imported
     edited = copy.deepcopy(story)

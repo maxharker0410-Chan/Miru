@@ -325,7 +325,7 @@ def save_model(user_dir, data):
     return model_status(user_dir)
 
 
-def start_session(user_dir, story_id):
+def start_session(user_dir, story_id, *, test_run=False):
     story = get_story(user_dir, story_id)
     session = {"id": uuid.uuid4().hex, "story_id": story["id"],
                "scene_id": story["start_scene"], "messages": [],
@@ -335,6 +335,8 @@ def start_session(user_dir, story_id):
                "memories": {character["id"]: [] for character in story["characters"]},
                "visuals": {c["id"]: {"state_id": c.get("default_visual_state", ""),
                                      "locked": False} for c in story["characters"]}}
+    if test_run is True:
+        session["test_run"] = True
     if story["opening"]:
         session["messages"].append({"scene_id": session["scene_id"],
                                     "speaker": "narrator", "text": story["opening"]})
@@ -366,7 +368,7 @@ def list_sessions(user_dir, story_id):
                        reverse=True)
         return [{"id": item["id"], "scene_id": item["scene_id"],
                  "message_count": len(item["messages"])}
-                for path in paths for item in [_read(path)]]
+                for path in paths for item in [_read(path)] if item.get("test_run") is not True]
 
 
 def set_visual(user_dir, story_id, session_id, character_id, state_id, locked):

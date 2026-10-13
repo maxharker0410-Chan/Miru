@@ -75,6 +75,8 @@ function view(next) {
   $('importBtn').disabled = offline || busy;
   $('catalogBtn').hidden = !story?.world || next !== 'player';
   $('catalogBtn').disabled = busy || !session;
+  $('settingsBtn').hidden = !story?.world;
+  $('settingsBtn').disabled = offline || busy;
   for (const id of ['welcome', 'editor', 'player']) $(id).classList.toggle('on', id === next);
   $('editBtn').hidden = !story || next === 'editor'; $('playBtn').hidden = !story?.id || next === 'player';
   $('restartBtn').hidden = !story?.id || next !== 'player' || !session;
@@ -123,7 +125,7 @@ function renderWorldTravel() {
   if (!session) return;
   const pending = session.world_state?.pending_travel;
   const target = pending?.location_id || session.scene_id;
-  $('worldTravel').innerHTML = `<label for="worldDestination">選擇目的地</label><select id="worldDestination">${story.scenes.map(s => `<option value="${esc(s.id)}" ${s.id === target ? 'selected' : ''}>${esc(s.title)}</option>`).join('')}</select><button class="btn ghost" id="worldTravelConfirm" ${busy || offline ? 'disabled' : ''}>確認已抵達</button>${pending ? '<p>旅行已提出，確認抵達後才會切換場景。</p>' : '<p>只有同行角色會隨你移動；其他角色保留位置與記憶。</p>'}`;
+  $('worldTravel').innerHTML = `<label for="worldDestination">手動選擇目的地（可選）</label><select id="worldDestination">${story.scenes.map(s => `<option value="${esc(s.id)}" ${s.id === target ? 'selected' : ''}>${esc(s.title)}</option>`).join('')}</select><button class="btn ghost" id="worldTravelConfirm" ${busy || offline ? 'disabled' : ''}>前往選定地點</button>${pending ? '<p>尚未出發。可在對話中描述前往或抵達，也可手動切換。</p>' : '<p>直接在對話中前往地點，背景與同行角色會隨劇情更新。</p>'}`;
 }
 async function performWorldAction(body) {
   const request = worldEvent(body);
@@ -529,6 +531,28 @@ $('importForm').onsubmit = async e => {
 };
 $('catalogBtn').onclick = () => { resetLibrary(); renderCatalog(); $('catalogDialog').showModal(); };
 $('catalogClose').onclick = () => $('catalogDialog').close();
+$('settingsBtn').onclick = () => { if (!busy && !offline) { $('settingsStatus').textContent = ''; $('settingsDialog').showModal(); } };
+$('settingsCancel').onclick = () => { if (!busy) $('settingsDialog').close(); };
+$('settingsDialog').addEventListener('cancel', e => { if (busy) e.preventDefault(); });
+$('settingsForm').onsubmit = async e => {
+  e.preventDefault(); if (busy || offline || !story?.world) return;
+  const file = $('settingsDocx').files[0];
+  if (!file) return notice('請選擇完整的 Word 設定書。');
+  if (file.size > 16 * 1024 * 1024) return notice('設定書請小於 16 MB。');
+  const body = new FormData(); body.append('world_document', file);
+  body.append('base_settings_revision', story.world.author_settings?.revision || 0);
+  busy = true; view(mode); $('settingsSubmit').disabled = $('settingsCancel').disabled = true;
+  $('settingsStatus').textContent = '正在核對七區角色與地點；記憶、圖片及存檔會保留…';
+  try {
+    const result = await api('/stories/' + story.id + '/world-settings', {method:'POST', body});
+    story = result.story;
+    if (session) session = await api('/stories/' + story.id + '/sessions/' + session.id);
+    resetLibrary(); saveSnapshot(); await loadList();
+    if (mode === 'editor') renderEditor(); else if (mode === 'player') renderPlay();
+    $('settingsDialog').close(); notice(result.already_applied ? '已使用這份設定書，進度保留。' : '設定書已更新；153 名角色、圖片與存檔保留。');
+  } catch (error) { $('settingsStatus').textContent = error.message; }
+  finally { busy = false; $('settingsSubmit').disabled = $('settingsCancel').disabled = false; view(mode); if (mode === 'player') renderPlay(); }
+};
 for (const prefix of ['character','catalog']) {
   for (const suffix of ['Search','Kind','Region']) $(prefix + suffix).addEventListener(suffix === 'Search' ? 'input' : 'change', () => {
     if (prefix === 'character') characterPage = 1; else catalogPage = 1;
@@ -551,6 +575,7 @@ document.addEventListener('click', async e => {
   if (e.target.id === 'worldTravelConfirm') {
     const target = $('worldDestination').value, location = story.scenes.find(s => s.id === target);
     if (target !== session.scene_id) await performWorldAction({action:'travel', location_id:target});
+    else notice('目前就在這個地點，對話與在場角色已保留。');
   }
 });
 

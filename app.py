@@ -624,6 +624,21 @@ def api_schat_world_action(story_id, session_id):
     return jsonify(world_runtime.action(_story_user_dir(), story_id, session_id, request.get_json(silent=True)))
 
 
+@app.route("/api/schat/stories/<story_id>/world-settings", methods=["POST"])
+def api_schat_world_settings(story_id):
+    from world_settings import apply_document, MAX_DOCUMENT
+    request.max_content_length = MAX_DOCUMENT
+    if (request.content_length or 0) > MAX_DOCUMENT:
+        return jsonify({"error":"Word 設定書請小於 16 MB。"}), 413
+    document = request.files.get("world_document")
+    if not document or not (document.filename or "").lower().endswith(".docx"):
+        return jsonify({"error":"請選擇完整的魔法異世界 Word 設定書（.docx）。"}), 400
+    revision = request.form.get("base_settings_revision", "")
+    if not revision.isdecimal():
+        return jsonify({"error":"請重新載入故事後更新設定書。"}), 400
+    return jsonify(apply_document(_story_user_dir(), story_id, document.stream, int(revision)))
+
+
 @app.route("/api/schat/model", methods=["GET", "PUT"])
 def api_schat_model():
     if request.method == "GET":
@@ -664,7 +679,9 @@ def api_schat_story(story_id):
 def api_schat_start(story_id):
     if request.method == "GET":
         return jsonify({"sessions": story_engine.list_sessions(_story_user_dir(), story_id)})
-    return jsonify(story_engine.start_session(_story_user_dir(), story_id)), 201
+    body = request.get_json(silent=True)
+    test_run = isinstance(body, dict) and body.get("test_run") is True
+    return jsonify(story_engine.start_session(_story_user_dir(), story_id, test_run=test_run)), 201
 
 
 @app.route("/api/schat/stories/<story_id>/sessions/<session_id>")
