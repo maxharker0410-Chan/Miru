@@ -28,6 +28,7 @@ data/*
 # Build output
 build/
 dist/
+dist-world-import/
 artifacts/
 public-source-export/
 src-tauri/target/

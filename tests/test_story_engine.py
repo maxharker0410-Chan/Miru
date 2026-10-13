@@ -126,3 +126,8 @@ def test_story_routes_media_and_turn(tmp_path, monkeypatch):
     assert client.get("/api/schat/model").json["configured"] is True
     assert client.post("/api/schat/model/test").json == {"ok": True}
     assert client.get("/api/schat/assets/../../auth.json").status_code in (400, 404)
+    automated = client.post(f"/api/schat/stories/{story_id}/sessions", json={"test_run":True})
+    assert automated.status_code == 201 and automated.json["test_run"] is True
+    listed = client.get(f"/api/schat/stories/{story_id}/sessions").json["sessions"]
+    assert [run["id"] for run in listed] == [sid]
+    assert client.get(f"/api/schat/stories/{story_id}/sessions/{automated.json['id']}").status_code == 200

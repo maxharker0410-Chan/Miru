@@ -14,3 +14,6 @@ S. Chat 是可自訂故事世界、角色與場景的互動角色扮演應用。
 這是可測試的開發版，Windows x64 與 WebView2 Runtime 為執行條件。角色與背景圖片需由作者提供；目前不會自行生成美術素材。角色對話會消耗所設定模型服務的 API 額度。故事檔案保存在原有本機使用者資料路徑的 `s_chat` 子目錄。
 
 原始 Miru 的程式與授權資訊保留在專案中；請參見 [原始 README](docs/UPSTREAM_MIRU_README.md)、[LICENSE](LICENSE) 與 [第三方聲明](THIRD_PARTY_NOTICES.md)。S. Chat 與原 Miru 為不同的產品方向，部分內部相容元件暫時仍沿用原名稱，以便讀取既有登入與模型設定。
+## S. Chat 世界匯入
+
+魔法異世界支援世界 ZIP 與 WebP ZIP 一次匯入、角色搜尋／分頁、同行／離隊及存檔續玩，沿用現有登入與聊天模型。使用方式見 [S. Chat 世界匯入](docs/S_CHAT_WORLD_IMPORT.md)。
