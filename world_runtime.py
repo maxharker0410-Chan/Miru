@@ -1,5 +1,6 @@
 """Per-playthrough world state. Static world facts never become shared memory."""
 import json
+import re
 import uuid
 import story_engine as engine
 
@@ -125,6 +126,36 @@ def travel_companions(story, session, proposed):
                 or chars[cid]['identity'].get('follower_candidate') is not False)]
 
 
+def explicit_arrival(story, line):
+    """Recognize a player's own completed action, not quotes or future plans."""
+    line = re.sub(r'「[^」]*」|『[^』]*』|“[^”]*”|"[^"]*"', '', line)
+    found = None
+    for clause in re.split(r'[。!！;；\n]', line):
+        clause = clause.strip(' *')
+        if not re.match(r'^(?:(?:現在|此時|然後|於是)[，,\s]*)?我', clause):
+            continue
+        if re.match(r'^(?:(?:現在|此時|然後|於是)[，,\s]*)?我(?:們)?的', clause) or re.search(r'[?？]', clause):
+            continue
+        move = re.search(r'抵達|到達|回到|返回|走到|來到|進入', clause)
+        if not move:
+            continue
+        prefix = clause[:move.start()]
+        if re.search(r'沒有|還沒|尚未|不曾|並未|未曾|如果|假如|假設|是否|要是|想|打算|準備|明天|下次|下週|下周|昨天|之前|上次|以前|曾經|回憶|回想|聽|說|告訴|通知|轉告|轉述|看到|看見|記得|得知|知道|覺得|認為|發現', prefix):
+            continue
+        destination = re.split(r'[，,]', clause[move.end():], maxsplit=1)[0].strip()
+        if re.search(r'途中|路上|尚未|還沒', destination):
+            continue
+        matches = [s for s in story['scenes'] if s['title'] in destination]
+        if matches:
+            # Prefer the most specific named place, never its broader image area.
+            found = max(matches, key=lambda s:len(s['title']))['id']
+        else:
+            for label, target in (('公會','loc_03_guild'),('圖書館','loc_02_library')):
+                if destination.endswith((label, label+'門口', label+'總部')) and any(s['id']==target for s in story['scenes']):
+                    found = target
+    return found
+
+
 def move(story, session, target, companion_ids=None):
     if not isinstance(target, str) or target not in {s['id'] for s in story['scenes']}:
         raise engine.StoryError('找不到目的地。')
@@ -239,6 +270,8 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         '玩家明確做出前往、走到、帶某人到目的地等移動行動，或敘述已抵達時，本回合完成換場：'
         'next_scene_id 用目的地ID，travel_status 用 arrived。玩家不必再點選目的地確認。'
         '例如「我和她一起走到星輝圖書館」就是 arrived；問路、「想去」、「明天再去」或尚未行動只是 proposed。'
+        '回憶、轉述角色的話、假設、否定移動與詢問都不能更改玩家位置。若作者規則明確禁止這次移動，'
+        'travel_allowed 用 false 並在 situation 說明原因；合法移動用 true，不能漏填已返回的目的地。'
         '不能將不知道的交通時間發明成零秒；換場只記錄本回合完成的行動，不推算天數或離線時間。'
         'traveling_ids 列出劇情中一起移動的當下在場角色，既有同行者通常繼續同行；'
         '不可同行者、遠方人物、被提到的角色和留在原地的人不得放入 traveling_ids。'
@@ -251,7 +284,7 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         'status 用 departed 或 arrived；evidence 必須逐字引用 player_input 或 history 的公開片段（至少6字）。'
         '只是出發時用 departed，不能假定已到達或將作者事件種子當已發生。'
         '不要改寫共通設定、擅自啟動事件種子或共享私人記憶。輸出JSON：'
-        '{"speaker_ids":[],"present_ids":[],"next_scene_id":null,"travel_status":"proposed",'
+        '{"speaker_ids":[],"present_ids":[],"next_scene_id":null,"travel_status":"proposed","travel_allowed":true,'
         '"traveling_ids":[],"leave_ids":[],"character_journeys":[],"situation":"當下環境","character_statuses":{}}。')
     direction = generate(director_system, json.dumps({
         'scene':{'id':scene['id'], 'title':scene['title'], 'region_id':scene.get('region_id'), 'cast':session['cast']},
@@ -271,6 +304,12 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         'player_input':line, 'history':public[-20:]}, ensure_ascii=False), 'schat_director')
     if not isinstance(direction, dict):
         raise engine.StoryError('故事導演回覆格式錯誤。')
+    confirmed = explicit_arrival(story, line)
+    if confirmed and direction.get('travel_allowed') is not False:
+        direction['next_scene_id'] = confirmed
+        direction['travel_status'] = 'arrived'
+    elif direction.get('travel_allowed') is False:
+        direction['next_scene_id'] = None
     target = direction.get('next_scene_id')
     arrived = (isinstance(target, str) and target in {s['id'] for s in story['scenes']}
                and target != scene['id'] and direction.get('travel_status') == 'arrived')

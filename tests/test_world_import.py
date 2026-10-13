@@ -414,6 +414,36 @@ def test_unknown_remote_party_member_is_not_an_on_screen_candidate(imported):
     assert result['world_state']['party_character_ids'] == ['char_01_f03']
 
 
+def test_explicit_return_updates_scene_when_director_omits_destination(imported):
+    root, story, initial = imported
+    apply(imported, 'travel', location_id='loc_02_library')
+    # Exact user wording caught in a real model regression: presence was empty
+    # but next_scene_id was omitted, leaving the background at the library.
+    moved = narrative_turn(imported, '她留在星輝圖書館。我自己已經返回冒險者公會總部；她沒有跟來。',
+        {'present_ids':[], 'next_scene_id':None})
+    # This synthetic world's guild title is short; the canonical alias still
+    # resolves to the same stable guild ID.
+    assert moved['scene_id'] == 'loc_03_guild'
+    assert moved['messages'][-1]['speaker'] == 'narrator'
+    assert engine.get_session(root,story['id'],initial['id']) == moved
+
+
+@pytest.mark.parametrize('line',[
+    '我想明天走到星輝圖書館。', '我昨天已經到達星輝圖書館。',
+    '我跟她說「我已經抵達星輝圖書館」。', '我的朋友已經抵達星輝圖書館。',
+    '我已經到達星輝圖書館了嗎？', '我準備返回公會。',
+    '我知道她已經抵達星輝圖書館。', '我告訴她我已經抵達星輝圖書館。',
+])
+def test_quoted_historical_future_or_other_person_arrivals_do_not_force_a_move(imported, line):
+    assert world_runtime.explicit_arrival(imported[1], line) is None
+
+
+def test_author_restriction_blocks_even_a_player_claimed_arrival(imported):
+    result = narrative_turn(imported, '我已經到達星輝圖書館。',
+        {'present_ids':[], 'travel_allowed':False, 'situation':'尚未取得通行許可。'})
+    assert result['scene_id'] == 'loc_03_guild'
+
+
 def test_world_save_cannot_strip_metadata_or_replace_stable_ids(imported):
     root,story,initial = imported
     edited = copy.deepcopy(story)
