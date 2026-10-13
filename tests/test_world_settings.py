@@ -102,6 +102,8 @@ def test_author_update_keeps_all_ids_pictures_saves_model_and_private_memories(a
     assert [(s['id'],s['background']) for s in changed['scenes']] == [(s['id'],s['background']) for s in story['scenes']]
     assert next(c for c in changed['characters'] if c['id'] == 'char_02_head')['name'] == '作者姓名_char_02_head'
     assert changed['world']['author_settings']['revision'] == 1
+    assert next(c for c in changed['characters'] if c['id']=='char_02_head')['identity']['age'] == 30
+    assert next(c for c in changed['characters'] if c['id']=='char_02_head')['identity']['species'] == '人類'
     backups = list((engine._root(root)/'world-settings-backups'/story['id']).glob('*.json'))
     assert len(backups) == 1 and engine._read(backups[0]) == story
     resumed = engine.get_session(root,story['id'],session['id'])
@@ -165,3 +167,15 @@ def test_docx_update_route_uses_existing_login_and_checks_revision(authored, mon
     assert client.post(route,data={'world_document':(document(story),'設定.docx'),'base_settings_revision':'0'}).status_code == 409
     monkeypatch.setattr(auth,'check_request',lambda req: ({'error':'not logged in'},401))
     assert client.post(route,data={}).status_code == 401
+
+
+@pytest.mark.parametrize('header,expected',[
+    ('精靈弓手｜84 歲｜女性精靈\n外貌年齡：約 21～23 歲', {'age':84,'gender':'female','species':'精靈'}),
+    ('問題學生｜21 歲｜狼族獸人男性', {'age':21,'gender':'male','species':'狼族獸人'}),
+    ('封印守望者｜外表約 40 歲｜男性｜實際年齡未知', {'age':None,'gender':'male'}),
+])
+def test_author_age_gender_and_species_do_not_confuse_actual_and_apparent_age(header, expected):
+    parsed = world_settings.identity_details({'身分':header})
+    assert all(parsed[key] == value for key,value in expected.items())
+    if '外貌年齡' in header:
+        assert parsed['apparent_age_description'] == '外貌年齡：約 21～23 歲'

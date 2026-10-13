@@ -10,6 +10,7 @@ from world_import import Package
 from world_runtime import ConflictError
 
 MAX_DOCUMENT = 16 * 1024 * 1024
+PARSER_VERSION = 1
 NS = {'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 # Document-local codes are scoped to a region, never used as new runtime IDs.
 CODE_IDS = {
@@ -154,6 +155,32 @@ def _scene_description(scene, data):
     return scene['description']
 
 
+def identity_details(fields):
+    """Keep an elf's real age distinct from appearance; do not invent unknowns."""
+    identity = fields.get('身分', '')
+    line = next((line for line in identity.splitlines() if '｜' in line), '')
+    parts = [part.strip() for part in line.split('｜')]
+    result = {}
+    if len(parts) >= 2:
+        result['age_description'] = parts[1]
+        age = re.fullmatch(r'(\d+)\s*歲', parts[1])
+        if age:
+            result['age'] = int(age.group(1))
+        elif '實際年齡未知' in line:
+            result['age'] = None
+    if '女性' in line:
+        result['gender'] = 'female'
+    elif '男性' in line:
+        result['gender'] = 'male'
+    species = next((value for value in ('半精靈','狼族獸人','精靈','矮人','獸人','龍人','魔族','人類') if value in line), None)
+    if species:
+        result['species'] = species
+    appearance = next((line for line in identity.splitlines() if line.startswith('外貌年齡')), None)
+    if appearance:
+        result['apparent_age_description'] = appearance
+    return result
+
+
 def apply_document(user_dir, story_id, stream, base_revision):
     with engine._LOCK:
         story = engine.get_story(user_dir, story_id)
@@ -163,7 +190,7 @@ def apply_document(user_dir, story_id, stream, base_revision):
         if type(base_revision) is not int or base_revision != old.get('revision', 0):
             raise ConflictError('設定書已更新，請重新載入後操作；本次沒有覆蓋設定。')
         data = read_document(stream, story)
-        if old.get('document_xml_sha256') == data['document_xml_sha256']:
+        if old.get('document_xml_sha256') == data['document_xml_sha256'] and old.get('parser_version') == PARSER_VERSION:
             return {'story':story, 'already_applied':True, 'report':old['report']}
         updated = copy.deepcopy(story)
         identities = {c['id']:c for c in updated['world']['definition']['characters']}
@@ -175,6 +202,7 @@ def apply_document(user_dir, story_id, stream, base_revision):
                 c['personality'] = fields['性格']
                 c['backstory'] = '\n'.join(key + '：\n' + value for key,value in fields.items() if key not in ('性格','生圖關鍵字'))
                 identity = c['identity']
+                identity.update(identity_details(fields))
                 role_line = next((line for line in fields.get('身分', '').splitlines() if '｜' in line), '')
                 identity.update({'name':card['name'], 'record_status':'author_card', 'source_code':card['source_code'],
                     'author_card':fields, 'follower_candidate':False if '不可跟隨' in fields.get('身分', '') else (
@@ -201,6 +229,7 @@ def apply_document(user_dir, story_id, stream, base_revision):
         report = {'important_characters':len(data['cards']), 'npcs':len(data['npcs']),
             'scenes':len(updated['scenes']), 'sessions_preserved':True, 'portraits_preserved':True}
         updated['world']['author_settings'] = {'revision':old.get('revision', 0)+1,
+            'parser_version':PARSER_VERSION,
             'document_xml_sha256':data['document_xml_sha256'], 'public_rules':data['public_rules'],
             'public_regions':data['public_regions'],
             'author_regions':{rid:'\n'.join(chapter) for rid,chapter in data['chapters'].items()},
