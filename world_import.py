@@ -257,6 +257,11 @@ def import_packages(user_dir, world_stream, images_stream):
                 (staging / name).write_bytes(raw)
                 images[asset['path']] = name
             story = convert(world, knowledge, manifest, bindings, images)
+            from world_release import from_package
+            release = from_package(world_pack, [c['id'] for c in story['characters']
+                if c['kind'] == 'important_character'], required=False)
+            if release:
+                story['world']['content_release'] = release
             story['import_info'] = {'fingerprint':fingerprint, 'important_characters':54, 'npcs':99,
                 'backgrounds':42, 'images':195, 'opaque_portraits_used_directly':12, 'world_version':'1.0.0'}
             story = engine.validate_story(story, WORLD_ID)

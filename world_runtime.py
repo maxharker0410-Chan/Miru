@@ -3,6 +3,16 @@ import json
 import re
 import uuid
 import story_engine as engine
+import world_memory
+
+PARTY_LIMIT = 4
+
+
+def check_party(state, additions=()):
+    members = list(dict.fromkeys(state['party_character_ids'] + list(additions)))
+    if len(members) > PARTY_LIMIT:
+        raise engine.StoryError('最多同行 4 人（玩家另計）；請先安排一位同伴留守或離隊。')
+    return members
 
 
 class ConflictError(engine.StoryError):
@@ -165,7 +175,7 @@ def move(story, session, target, companion_ids=None):
         return None
     state = session['world_state']
     travelers = travel_companions(story, session, state['party_character_ids'] + (companion_ids or []))
-    state['party_character_ids'] = list(dict.fromkeys(state['party_character_ids'] + travelers))
+    state['party_character_ids'] = check_party(state, travelers)
     session['scene_id'] = target
     session['situation'] = ''
     state['pending_travel'] = None
@@ -219,11 +229,13 @@ def action(user_dir, story_id, session_id, body):
                     raise engine.StoryError('請先確認角色已抵達目前場景。')
                 if characters[cid]['identity'].get('follower_candidate') is False:
                     raise engine.StoryError('作者設定此角色目前不可同行。')
-                state['party_character_ids'] = list(dict.fromkeys(state['party_character_ids'] + [cid]))
+                state['party_character_ids'] = check_party(state, [cid])
                 value['availability'] = 'following'
                 value.pop('journey', None)
             else:
                 state['party_character_ids'] = [x for x in state['party_character_ids'] if x != cid]
+                value['last_departure'] = {'location_id':session['scene_id'],
+                    'world_tick':state['world_tick'] + 1, 'reason':kind}
                 value['availability'] = 'working' if characters[cid]['identity'].get('fixed_identity') else 'away'
                 if kind == 'depart':
                     session['cast'] = [x for x in session['cast'] if x != cid]
@@ -262,7 +274,10 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
     public = [m for m in session['messages'][-40:] if m.get('scene_id') == scene['id']]
     player_message = {'scene_id':scene['id'], 'speaker':'player', 'text':line, 'witness_ids':list(session['cast'])}
     public.append(player_message)
-    director_system = ('你是世界故事導演。保留穩定角色ID；只安排 available_characters 中同處此地或可合理到場的人。'
+    director_system = ('你是世界故事導演。玩家另計，同行最多4人；滿員不得自動踢人或招募第5人。'
+        '目前優先採用 content_release 的規則；人物缺少完整技能數值時不得編造已解鎖技能。'
+        '你只能提出情節，未執行的想像不當成交易、戰鬥勝利或物品移轉。'
+        '保留穩定角色ID；只安排 available_characters 中同處此地或可合理到場的人。'
         '重要角色通常留在其 home_region_id 區域執行工作與生活；跨區出現需要已有同行或冒險、任務移動紀錄。'
         '不因提到名字或需要人說話就把遠方人物搬來，不臨時編造任務當跨區理由，也不讓整個區域的人都聚在一起。'
         'follow_conditions 是作者同行條件；候選不代表立即加入，需符合信任、職務安排或任務條件。'
@@ -297,6 +312,9 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
             'can_follow':c['id'] in state['party_character_ids'] or c['identity'].get('follower_candidate') is not False} for c in candidates],
         'party_character_ids':state['party_character_ids'], 'pending_travel':state['pending_travel'],
         'current_situation':session['situation'],
+        'content_release':story['world'].get('content_release', {}).get('runtime_rules', {}),
+        'author_story_context':story['world'].get('content_release', {}).get('narrative_context', []),
+        'journey_recap':world_memory.public_journal(session)[-3:],
         'world_rules':story['world'].get('author_settings', {}).get('public_rules', ''),
         'region_setting':story['world'].get('author_settings', {}).get('public_regions', {}).get(scene.get('region_id'), ''),
         'next_scenes':[{'id':s['id'], 'title':s['title']} for s in story['scenes'] if s['id'] != scene['id']],
@@ -320,6 +338,14 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
     companions = travel_companions(story, session, explicit_travelers + (
         engine._presence_ids(direction.get('present_ids'), chars) if arrived else []))
     leaving = [cid for cid in engine._presence_ids(direction.get('leave_ids'), chars) if cid in session['cast']]
+    if len(set(state['party_character_ids'] + companions)) > PARTY_LIMIT:
+        # A director cannot silently free a slot by evicting a companion.
+        for cid in leaving:
+            labels = [chars[cid]['name'], chars[cid].get('search_label'),
+                      chars[cid]['identity'].get('display_label')]
+            if not (any(label and label in line for label in labels)
+                    and re.search(r'留|離隊|離開|解散|回去|回家', line)):
+                raise engine.StoryError('同行已滿四人，請明確安排誰留守或離隊；沒有自動移除同伴。')
     companions = [cid for cid in companions if cid not in leaving]
     accompanying = explicit_travelers + companions + (state['party_character_ids'] if arrived else [])
     accompanying = [cid for cid in accompanying if cid not in leaving]
@@ -359,6 +385,9 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         session['cast'] = [cid for cid in session['cast'] if cid not in leaving]
     for cid in leaving:
         state['characters'][cid]['availability'] = 'away'
+        state['characters'][cid]['last_departure'] = {
+            'location_id':state['characters'][cid]['location_id'],
+            'world_tick':state['world_tick'] + 1, 'reason':'narrative_leave'}
     player_message['witness_ids'] = list(session['cast'])
     if valid_presence:
         session['situation'] = engine._short(direction.get('situation'), 600)
@@ -369,6 +398,7 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
     if not selected:
         selected = session['cast'][:1]
     new_messages = [player_message]
+    memory_suggestions = {}
     for journey in journeys:
         new_messages.append({'scene_id':scene['id'], 'speaker':'narrator',
             'text':chars[journey['character_id']]['name'] + '：' + journey['evidence'],
@@ -392,7 +422,8 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
             'authorized_knowledge':knowledge_for(story, character),
             'world_rules':story['world'].get('author_settings', {}).get('public_rules', ''),
             'scene':{'id':scene['id'], 'title':scene['title'], 'cast':session['cast']},
-            'current_situation':session['situation'], 'your_private_memory':session['memories'][cid][-20:],
+            'current_situation':session['situation'], 'your_private_memory':world_memory.select(session, cid, line),
+            'your_ability_blueprint':story['world'].get('content_release', {}).get('character_directions', {}).get(cid),
             'pending_travel':state['pending_travel'],
             'available_visual_states':engine._visual_options(character),
             'player_input':line, 'public_history':history[-20:]}, ensure_ascii=False), 'schat_character')
@@ -403,15 +434,12 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         new_messages.append(message)
         engine._set_public_status(session, cid, answer.get('public_status'))
         engine._set_visual(session, character, answer.get('visual_state'))
-        for fact in answer.get('remember', [])[:2] if isinstance(answer.get('remember'), list) else []:
-            content = engine._short(fact, 240)
-            if content and content not in session['memories'][cid]:
-                session['memories'][cid].append(content)
-                state['memory_entries'][cid].append({'memory_id':uuid.uuid4().hex, 'character_id':cid,
-                    'event_id':event_id, 'world_tick':state['world_tick'] + 1,
-                    'source_type':'witnessed', 'content':content, 'certainty':'personal_observation', 'share_scope':'character_only'})
+        memory_suggestions[cid] = [engine._short(fact, 240)
+            for fact in answer.get('remember', [])[:2] if engine._short(fact, 240)] if isinstance(answer.get('remember'), list) else []
     commit(session, event_id, 'turn', {'present_character_ids':list(session['cast']),
         'location_id':session['scene_id'], 'character_journeys':journeys})
+    world_memory.record(user_dir, story, session, new_messages, memory_suggestions,
+                        event_id, generate, boundary=arrival is not None)
     session['messages'] = (session['messages'] + new_messages)[-200:]
     engine._write(engine._session_path(user_dir, story['id'], session['id']), session)
     return session

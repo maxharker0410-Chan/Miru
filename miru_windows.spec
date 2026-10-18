@@ -68,6 +68,8 @@ a = Analysis(
         "story_tracker",
         "world_import",
         "world_runtime",
+        "world_memory",
+        "world_release",
         "world_settings",
         "memory_prompts",
         "memory",

@@ -2,7 +2,7 @@ name: S. Chat Windows test build
 
 on:
   push:
-    branches: [develop/companion-v1, feature/schat-story]
+    branches: [develop/companion-v1, feature/schat-story, feature/schat-alpha-settings]
   workflow_dispatch:
 
 permissions:
@@ -49,10 +49,11 @@ jobs:
           S. Chat Windows 故事測試版
 
           1. 將 ZIP 全部解壓縮，再執行 S.Chat.exe；請先關閉舊版 Miru。
-          2. 使用原本的登入和聊天模型設定。建立故事，填寫世界觀、角色與場景。
-          3. 可上傳背景圖片與角色透明立繪；替場景勾選在場角色及下一場景。
+          2. 使用原本的登入和聊天模型設定；先匯入世界 ZIP 與現有 WebP 圖片 ZIP。
+          3. 既有世界按「套用新版設定」，選完整測試資料 ZIP；不用逐張上圖。
           4. 儲存並開始故事。多名角色可同場出現，故事推進時背景自動切換。
-          5. 每名角色的記憶獨立保存；關閉重開後可接續遊玩。
+          5. 玩家之外最多四位同行；個人與旅程記憶約每八次整合，原對話另行保存。
+          6. 本包為 Alpha：任務／敵人目錄與能力方向已接入，完整數值戰鬥及掉落執行器尚待實作。
 
           需要 Windows x64、WebView2 Runtime 與已設定的聊天模型 API。
           這個 ZIP 是測試版，尚未完成 Windows 人工驗收。
