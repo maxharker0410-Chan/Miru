@@ -144,6 +144,15 @@ def test_memory_lookup_is_scoped_and_bounded(imported):
     assert len(session['memories'][a]) == 31
 
 
+def test_private_short_term_notes_survive_until_compaction(imported):
+    _, story, session = imported
+    a, b = [c['id'] for c in story['characters'][:2]]
+    memory = world_memory.initialize(session)
+    memory['characters'][a] = {'pending':[{'own_notes':['OWN_UNSPOKEN_IMPRESSION']}], 'summaries':[]}
+    memory['characters'][b] = {'pending':[{'own_notes':['OTHER_UNSPOKEN_SECRET']}], 'summaries':[]}
+    assert world_memory.select(session, a) == ['OWN_UNSPOKEN_IMPRESSION']
+
+
 @pytest.mark.parametrize('damage', ['party', 'character', 'duplicate', 'version'])
 def test_release_validation_rejects_conflicting_or_incomplete_settings(imported, damage):
     _, story, _ = imported

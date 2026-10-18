@@ -17,6 +17,10 @@ def select(session, cid, query=''):
     ledger = initialize(session)['characters'].get(cid, {})
     values = list(session.get('memories', {}).get(cid, []))
     values += [x['content'] for x in ledger.get('summaries', [])]
+    # Private short-term impressions must remain available before the next
+    # compaction, even when they were never spoken aloud in public history.
+    values += [note for row in ledger.get('pending', [])[-3:]
+               for note in row.get('own_notes', [])]
     terms = set(re.findall(r'[a-zA-Z]{3,}|[\u3400-\u9fff]{2,}', query))
     # CJK bigrams allow useful matching without requiring a remote embedding API.
     terms |= {term[i:i+2] for term in list(terms) for i in range(len(term)-1)}
