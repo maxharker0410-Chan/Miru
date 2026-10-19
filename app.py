@@ -646,6 +646,17 @@ def api_schat_model():
     return jsonify(story_engine.save_model(_story_user_dir(), request.get_json(silent=True)))
 
 
+@app.route("/api/schat/stories/<story_id>/content-release", methods=["POST"])
+def api_schat_content_release(story_id):
+    import world_release
+    request.max_content_length = world_release.MAX_RELEASE
+    package = request.files.get("content_zip")
+    if not package:
+        return jsonify({"error":"請選擇完整測試資料 ZIP。"}), 400
+    return jsonify(world_release.install(_story_user_dir(), story_id, package.stream,
+        request.form.get("base_content_version", "")))
+
+
 @app.route("/api/schat/model/test", methods=["POST"])
 def api_schat_model_test():
     try:

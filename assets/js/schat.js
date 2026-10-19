@@ -76,6 +76,8 @@ function view(next) {
   $('catalogBtn').hidden = !story?.world || next !== 'player';
   $('catalogBtn').disabled = busy || !session;
   $('settingsBtn').hidden = !story?.world;
+  $('contentReleaseBtn').hidden = !story?.world;
+  $('contentReleaseBtn').disabled = offline || busy;
   $('settingsBtn').disabled = offline || busy;
   for (const id of ['welcome', 'editor', 'player']) $(id).classList.toggle('on', id === next);
   $('editBtn').hidden = !story || next === 'editor'; $('playBtn').hidden = !story?.id || next === 'player';
@@ -259,6 +261,13 @@ function positionSpeech() {
   bubble.style.left = `${center}px`;
   bubble.style.setProperty('--pointer-x', `${target - center + half - 14}px`);
 }
+function renderParty(chars) {
+  const strip = $('partyStrip'), ids = session?.world_state?.party_character_ids || [];
+  strip.hidden = !story?.world || !session;
+  $('contentReleaseBtn').hidden = !story?.world;
+  if (strip.hidden) return;
+  strip.innerHTML = `<strong>同行 ${ids.length}／4 · 玩家另計</strong><div class="party-slots">${Array.from({length:Math.max(4, ids.length)}, (_, i) => { const c = chars[ids[i]]; return c ? `<div>${c.avatar ? `<img src="${esc(asset(c.avatar))}" alt="">` : ''}${esc(c.name)}<small>${esc(session.statuses?.[c.id] || '詳細狀態見在場角色')}</small><button type="button" class="btn ghost small" data-world-action="leave" data-cid="${esc(c.id)}">留在此處</button></div>` : '<div>空位</div>'; }).join('')}</div>${ids.length > 4 ? '<p>舊紀錄超過四位同行；請先安排留守，既有人物與記憶未刪除。</p>' : ''}`;
+}
 function renderPlay() {
   if (!story) return;
   $('restartBtn').hidden = !session;
@@ -289,6 +298,7 @@ function renderPlay() {
   $('playerText').textContent = player?.text || '';
   $('playerDelivery').textContent = player?.state === 'sending' ? '已送出 · 等待回覆' : player?.state === 'failed' ? '未送成功 · 文字已回填，請重試' : '你';
   renderTracker(s);
+  renderParty(chars);
   const markup = s.cast.map(id => {
     const c = chars[id], v = visual(c), src = asset(v.image);
     return `<div class="actor" data-actor="${esc(id)}">${src ? `<img src="${esc(src)}" data-actor-image="${esc(id)}" data-fallback="${esc(asset(c.avatar))}" alt="${esc(c.name)}・${esc(v.label)}" referrerpolicy="no-referrer">` : `<div class="silhouette">${esc(c.name.slice(0, 1))}</div>`}<b title="${esc(c.name)}">${esc(c.name)}</b>${(c.visual_states || []).length ? `<small class="actor-state">${esc(v.label)}${v.locked ? ' · 固定' : ''}</small>` : ''}</div>`;
@@ -310,7 +320,8 @@ function renderPlay() {
   }
   $('chatInput').disabled = $('sendBtn').disabled = !session || busy || offline;
   $('chatInput').placeholder = offline ? '離線閱讀中；連線後可繼續對話' : '你會怎麼說、怎麼做？';
-  $('memoryList').innerHTML = session ? story.characters.map(c => `<p><strong>${esc(c.name)}</strong></p><ul>${(session.memories[c.id] || []).map(m => `<li>${esc(m)}</li>`).join('') || '<li>尚無個人記憶</li>'}</ul>`).join('') : '<p>開始故事後，角色才會記住經歷。</p>';
+  const journal = session?.world_state?.memory_system?.journal?.summaries || [];
+  $('memoryList').innerHTML = '<ul>' + (journal.map(m => `<li>${esc(m.content)}</li>`).join('') || '<li>旅程紀要會在一段互動後整理；完整對話可在上方回看。</li>') + '</ul>';
   renderVisualControls(s, chars);
   requestAnimationFrame(positionSpeech);
   if (!offline) {
@@ -580,3 +591,16 @@ document.addEventListener('click', async e => {
 });
 
 initialize().catch(e => notice(e.message));
+
+$('contentReleaseBtn').onclick = () => { if (!busy && !offline && story?.world) { $('contentReleaseStatus').textContent = ''; $('contentReleaseDialog').showModal(); } };
+$('contentReleaseCancel').onclick = () => { if (!busy) $('contentReleaseDialog').close(); };
+$('contentReleaseDialog').addEventListener('cancel', e => { if (busy) e.preventDefault(); });
+$('contentReleaseForm').onsubmit = async e => {
+ e.preventDefault(); if (busy || offline || !story?.world) return;
+ const file = $('contentReleaseZip').files[0]; if (!file) return;
+ if (file.size > 8*1024*1024) return notice('設定 ZIP 請小於 8 MiB。');
+ const body = new FormData(); body.append('content_zip', file); body.append('base_content_version', story.world.content_release?.content_version || '');
+ busy=true; $('contentReleaseSubmit').disabled=$('contentReleaseCancel').disabled=true;
+ $('contentReleaseStatus').textContent='正在驗證新版設定並保存原設定備份…';
+ try { const result=await api('/stories/'+story.id+'/content-release',{method:'POST',body}); story=result.story; saveSnapshot(); renderPlay(); $('contentReleaseDialog').close(); notice('已套用 '+story.world.content_release.content_version+'；遊玩進度保留。'); } catch(error) { $('contentReleaseStatus').textContent=error.message; } finally { busy=false; $('contentReleaseSubmit').disabled=$('contentReleaseCancel').disabled=false; if(mode==='player') renderPlay(); }
+};
