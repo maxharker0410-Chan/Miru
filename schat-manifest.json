@@ -6,7 +6,7 @@
   "lang": "zh-Hant",
   "start_url": "/s-chat",
   "scope": "/s-chat",
-  "display": "standalone",
+  "display": "fullscreen",
   "background_color": "#0b0914",
   "theme_color": "#171322",
   "icons": [

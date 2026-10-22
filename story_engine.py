@@ -16,6 +16,9 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 import story_tracker
+import story_memory
+import story_input
+import sandbox
 
 
 _LOCK = threading.RLock()
@@ -183,7 +186,7 @@ def validate_story(data, story_id=None):
     characters = data.get("characters")
     scenes = data.get("scenes")
     world = data.get("world")
-    character_limit, scene_limit = (500, 150) if world else (12, 30)
+    character_limit, scene_limit = (500, 150)
     if not isinstance(characters, list) or not 1 <= len(characters) <= character_limit:
         raise StoryError(f"請建立 1 至 {character_limit} 名角色")
     if not isinstance(scenes, list) or not 1 <= len(scenes) <= scene_limit:
@@ -247,10 +250,15 @@ def validate_story(data, story_id=None):
     if world:
         from world_import import validate_world
         validate_world(world.get("definition"), world.get("knowledge"))
-        if len(cast) != 153 or len({c["id"] for c in cast if c.get("kind") == "important_character"}) != 54:
+        extension_ids = set(data.get('content_extensions', {}).get('character_ids', []))
+        original_cast = [c for c in cast if c['id'] not in extension_ids]
+        if len(original_cast) != 153 or len({c["id"] for c in original_cast if c.get("kind") == "important_character"}) != 54:
             raise StoryError("匯入世界的角色名冊不可刪除或新增 ID，請使用版本遷移。")
         result["world"] = copy.deepcopy(world)
         result["import_info"] = copy.deepcopy(data.get("import_info", {}))
+    for key in ('content_extensions', 'packages'):
+        if key in data:
+            result[key] = copy.deepcopy(data[key])
     return result
 
 
@@ -325,7 +333,7 @@ def save_model(user_dir, data):
     return model_status(user_dir)
 
 
-def start_session(user_dir, story_id, *, test_run=False):
+def start_session(user_dir, story_id, *, test_run=False, player_profile=None):
     story = get_story(user_dir, story_id)
     session = {"id": uuid.uuid4().hex, "story_id": story["id"],
                "scene_id": story["start_scene"], "messages": [],
@@ -339,7 +347,9 @@ def start_session(user_dir, story_id, *, test_run=False):
         session["test_run"] = True
     if story["opening"]:
         session["messages"].append({"scene_id": session["scene_id"],
-                                    "speaker": "narrator", "text": story["opening"]})
+                                    "speaker": "narrator", "text": story["opening"],
+                                    "witness_ids": list(session["cast"])})
+    sandbox.initialize(story, session, player_profile)
     story_tracker.reconcile(story, session)
     if story.get("world"):
         import world_runtime
@@ -354,7 +364,7 @@ def get_session(user_dir, story_id, session_id):
         story = get_story(user_dir, story_id)
         path = _session_path(user_dir, story_id, session_id)
         session = _read(path)
-        if _reconcile(story, session):
+        if _reconcile(sandbox.effective_story(story, session), session):
             _write(path, session)
         return session
 
@@ -377,6 +387,7 @@ def set_visual(user_dir, story_id, session_id, character_id, state_id, locked):
     with _LOCK:
         story = get_story(user_dir, story_id)
         session = get_session(user_dir, story_id, session_id)
+        story = sandbox.effective_story(story, session)
         character = next((c for c in story["characters"] if c["id"] == character_id), None)
         if not character or character_id not in session["cast"]:
             raise StoryError("請選擇目前在場的角色")
@@ -393,7 +404,7 @@ def _scene(story, scene_id):
 
 def _reconcile(story, session):
     """Keep an ongoing playthrough usable after its author edits the story."""
-    changed = False
+    changed = sandbox.initialize(story, session)
     if not isinstance(session.get("situation"), str):
         session["situation"] = ""
         changed = True
@@ -416,7 +427,7 @@ def _reconcile(story, session):
     if old_statuses != statuses:
         session["statuses"] = statuses
         changed = True
-    current_cast = _presence_ids(session["cast"], known)
+    current_cast = [cid for cid in _presence_ids(session["cast"], known) if sandbox.alive(session, cid)]
     if current_cast != session["cast"]:
         session["cast"] = current_cast
         session["situation"] = ""
@@ -452,38 +463,32 @@ def advance(user_dir, story_id, session_id, target, event_id=None, base_revision
                 {"action":"travel", "location_id":target, "event_id":event_id, "base_revision":base_revision})
         path = _session_path(user_dir, story_id, session_id)
         session = _read(path)
+        story = sandbox.effective_story(story, session)
         _reconcile(story, session)
+        sandbox.require_playing(session)
+        if not sandbox.check_event(session, event_id, base_revision):
+            return session
         scene = _scene(story, session["scene_id"])
         if target not in scene["next"]:
             raise StoryError("這個場景尚未連到指定地點")
         session["scene_id"] = target
         session["situation"] = ""
         next_scene = _scene(story, target)
-        session["cast"] = list(next_scene["cast"])
+        session["cast"] = [cid for cid in next_scene["cast"] if sandbox.alive(session,cid)]
         session["messages"].append({"scene_id": target, "speaker": "narrator",
-                                    "text": "場景切換：" + next_scene["title"]})
+                                    "text": "場景切換：" + next_scene["title"],
+                                    "witness_ids": list(session["cast"])})
+        sandbox.finish(session, event_id)
         _write(path, session)
         return session
 
 
 def _model(user_dir, system, user, label):
-    path = _root(user_dir) / "model.json"
-    if not path.is_file():
-        from prompt import _call_llm_json
-        return _call_llm_json(system, user, temperature=0.8,
-                              max_tokens=900, tier="chat", call_label=label)
     import ai_config
-    import openai
-    from prompt import _parse_llm_json
-    cfg = _read(path)
-    client = openai.OpenAI(api_key=cfg["api_key"],
-                           base_url=ai_config._openai_base_url_from_host(cfg["host"]),
-                           timeout=50)
-    response = client.chat.completions.create(
-        model=cfg["model"], max_tokens=900,
-        messages=[{"role": "system", "content": system + "\n只輸出合法 JSON。"},
-                  {"role": "user", "content": user}])
-    return _parse_llm_json(response.choices[0].message.content or "", label)
+    from story_model import generate
+    path = _root(user_dir) / "model.json"
+    config = _read(path) if path.is_file() else ai_config.get_tier_config("chat")
+    return generate(config, system, user, label)
 
 
 def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None, base_revision=None):
@@ -496,13 +501,40 @@ def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None
         story = get_story(user_dir, story_id)
         path = _session_path(user_dir, story_id, session_id)
         session = _read(path)
+        sandbox.initialize(story, session)
+        story = sandbox.effective_story(story, session)
         _reconcile(story, session)
+        if not story.get("world") and not sandbox.check_event(session, event_id, base_revision):
+            return session
+        if story.get('world'):
+            import world_runtime
+            if not world_runtime.check_event(session, event_id, base_revision):
+                return session
+        control = sandbox.command(line)
+        if control:
+            if story.get('world'):
+                import world_runtime
+                if not world_runtime.check_event(session, event_id, base_revision):
+                    return session
+            if session["sandbox"]["run_status"] == "dead":
+                sandbox.require_playing(session)
+            session["sandbox"]["run_status"] = "paused" if control == "pause" else "playing"
+            sandbox.finish(session, event_id)
+            if story.get('world'):
+                world_runtime.commit(session, event_id, 'control', {'command':control})
+            _write(path, session)
+            return session
+        if line.startswith(("/load", "/save", "/settings")):
+            raise StoryError("請用故事工具內的存讀檔或編輯功能；此指令不作劇中發言。")
+        sandbox.require_playing(session)
+        session['_turn_origin_scene'] = session['scene_id']
         if story.get("world"):
             import world_runtime
             return world_runtime.take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         scene = _scene(story, session["scene_id"])
         chars = {c["id"]: c for c in story["characters"]}
-        new_messages = [{"scene_id": scene["id"], "speaker": "player", "text": line}]
+        parts = story_input.input_parts(line)
+        new_messages = [{"scene_id": scene["id"], "speaker": "player", "text": line, "input_parts": parts}]
         public = session["messages"][-20:] + new_messages
         director_system = ("你是互動故事導演。根據公開劇情安排角色登場或離場。"
                            "state_tracker 是持續保存的數值追蹤；僅在本回合公開劇情有具體依據時更新。"
@@ -519,6 +551,7 @@ def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None
                            "玩家明確提出的單獨會面意圖優先，先前角色自行把旁人寫進回覆不代表旁人已跟來。"
                            "present_ids 可以空陣列表示玩家獨處；不能因只選了一名說話者就判定其餘人不在場。"
                            "situation 用簡短繁體中文描述目前位置與互動情況，只描述當下在場的人，不寫台詞。"
+                           "situation 與 character_statuses 只含當下公開可觀察資訊，不得轉述離場期間的私下對話或私人記憶。"
                            "character_statuses 只摘要目前在場角色可觀察的身體、情緒與行動狀態，"
                            "例如受傷、疲倦、安心、正在休息；不要寫台詞、私密記憶或不在場者的新狀態。"
                            "不要因角色未發言就讓其離場，也不要為了湊說話人數讓遠處角色突然登場。"
@@ -533,7 +566,8 @@ def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None
                            "\"situation\":\"目前位置與互動情況\",\"enter_ids\":[],\"leave_ids\":[],"
                            "\"character_statuses\":{\"角色ID\":\"目前可觀察的狀態\"},"
                            "\"visual_states\":{\"角色ID\":\"狀態ID\"},\"tracker_updates\":{}}。")
-        direction = generate(director_system, json.dumps({
+        direction = generate(director_system + story_input.PLAYER_INPUT_RULES + sandbox.DIRECTOR_RULES, json.dumps({
+            "sandbox_context": sandbox.director_context(session),
             "premise": story["premise"], "scene": _model_scene(scene, session["cast"], session["situation"]),
             "available_characters": [{**{key: c[key] for key in ("id", "name", "personality", "backstory")},
                                       "current_visual": session["visuals"][c["id"]],
@@ -546,7 +580,7 @@ def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None
                       "current_visual": session["visuals"][c],
                       "available_visual_states": _visual_options(chars[c])} for c in session["cast"]],
             "state_tracker": story_tracker.model_values(story, session),
-            "player_input": line, "history": public}, ensure_ascii=False), "schat_director")
+            "player_input": line, "player_input_parts": parts, "history": public}, ensure_ascii=False), "schat_director")
         if not isinstance(direction, dict):
             raise StoryError("故事導演回覆格式錯誤")
         selected = direction.get("speaker_ids", [])
@@ -563,8 +597,15 @@ def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None
             public.append(moved)
             new_messages.append(moved)
         events = _change_presence(session, chars, direction, scene["id"])
+        narration = sandbox.apply_direction(story, session, direction, line, public)
+        chars = {c["id"]:c for c in story["characters"]}
+        if narration:
+            events.append({"scene_id":scene["id"], "speaker":"narrator", "text":narration})
+        session["cast"] = [cid for cid in session["cast"] if sandbox.alive(session, cid)]
         public.extend(events)
         new_messages.extend(events)
+        for message in new_messages:
+            message["witness_ids"] = list(session["cast"])
         story_tracker.apply_updates(story, session, direction.get("tracker_updates"))
         situation = _short(direction.get("situation"), 600)
         proposed_cast = direction.get("present_ids")
@@ -579,9 +620,11 @@ def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None
             for cid, value in status_updates.items():
                 if cid in session["cast"]:
                     _set_public_status(session, cid, value)
-        selected = [cid for cid in _presence_ids(selected, chars) if cid in session["cast"]][:3]
-        if not selected:
+        selected = [cid for cid in _presence_ids(direction.get('speaker_ids', selected), chars) if cid in session["cast"]][:3]
+        if not selected and direction.get('speaker_ids') != []:
             selected = session["cast"][:1]
+        if session["sandbox"]["run_status"] == "dead":
+            selected = []
         visual_updates = direction.get("visual_states", {})
         if isinstance(visual_updates, dict):
             for cid, state_id in visual_updates.items():
@@ -594,7 +637,8 @@ def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None
                                 "text 必須包含你的完整回覆與自己的動作，不能把玩家的原話冒充自己的回答。"
                                 "speaker_names 對應歷史說話者；player 表示玩家，character.id 才是你。"
                                 "state_tracker 只包含公開資源與你自己的心理数值；回應需符合當下值。"
-                                "你只知道公開對話和『你的個人記憶』，其他角色的私有記憶不可得。"
+                                "你只知道親自在場聽到的對話和『你的個人記憶』，離場期間的談話與其他角色私有記憶不可得。"
+                                "個人記憶按經歷順序排列，舊經歷供回憶；目前位置、在場者和最新狀態以 scene 為準。"
                                 "scene.cast 是當下同一現場的完整角色名單，current_situation 是最新情況。"
                                 "scene.description 是初始背景，public_history 可包含先前群體互動；兩者不能把不在場的人帶回現場。"
                                 "只能描述你自己的台詞與動作，不要描寫不在 scene.cast 的角色正在旁邊活動，"
@@ -609,35 +653,33 @@ def take_turn(user_dir, story_id, session_id, text, generate=None, event_id=None
                                 "另可輸出 visual_state，從 available_visual_states 選擇符合當下狀況的 ID。"
                                 "沒有變化就省略；受傷或換裝等持續狀態保留到劇情明確結束。"
                                 "鎖定圖片時不要改動狀態。每次最多新增兩項事實，不要替其他角色說話。")
-            answer = generate(character_system, json.dumps({
+            answer = generate(character_system + story_input.PLAYER_INPUT_RULES + sandbox.ACTOR_RULES, json.dumps({
+                "personal_context": sandbox.actor_context(session, cid),
                 "story": story["premise"], "scene": _model_scene(scene, session["cast"], session["situation"]),
                 "character": {key: character[key] for key in ("id", "name", "personality", "backstory")},
                 "current_visual": session["visuals"][cid],
                 "current_public_status": session["statuses"].get(cid, ""),
                 "available_visual_states": _visual_options(character),
-                "player_input": line,
+                "player_input": line, "player_input_parts": parts,
                 "speaker_names": {"player": "玩家", "narrator": "旁白", **{key: c["name"] for key, c in chars.items()}},
                 "state_tracker": story_tracker.model_values(story, session, cid),
-                "your_private_memory": session["memories"][cid][-20:],
-                "public_history": public[-20:]}, ensure_ascii=False), "schat_character")
+                "your_private_memory": story_memory.recall(session, cid, line),
+                "public_history": story_memory.witnessed_history(session["messages"] + new_messages, cid)}, ensure_ascii=False), "schat_character")
             if not isinstance(answer, dict) or not _short(answer.get("text"), 1200):
                 raise StoryError("角色回覆格式錯誤")
             _set_visual(session, character, answer.get("visual_state"))
             _set_public_status(session, cid, answer.get("public_status"))
             spoken = {"scene_id": scene["id"], "speaker": cid,
-                      "text": _short(answer["text"], 1200)}
+                      "text": _short(answer["text"], 1200),
+                      "witness_ids": list(session["cast"])}
             dialogue = _short(answer.get("dialogue"), 1000)
             if dialogue:
                 spoken["dialogue"] = dialogue
             public.append(spoken)
             new_messages.append(spoken)
-            memories = answer.get("remember", [])
-            if isinstance(memories, list):
-                for fact in memories[:2]:
-                    value = _short(fact, 240)
-                    if value and value not in session["memories"][cid]:
-                        session["memories"][cid].append(value)
-                session["memories"][cid] = session["memories"][cid][-40:]
+            story_memory.remember(session, cid, answer.get("remember", []))
         session["messages"] = (session["messages"] + new_messages)[-200:]
+        sandbox.finish(session, event_id)
+        session.pop('_turn_origin_scene', None)
         _write(path, session)
         return session

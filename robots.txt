@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://mirulife.top/sitemap.xml

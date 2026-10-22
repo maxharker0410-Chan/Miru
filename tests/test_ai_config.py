@@ -79,18 +79,12 @@ def test_ping_tier_missing_config_uses_user_facing_copy(monkeypatch, tmp_path):
     assert "tier" not in result["error"].lower()
 
 
-def test_missing_model_settings_are_not_retryable():
-    import prompt
-
-    messages = [
-        "模型配置还没有完成：聊天模型 缺少 API Key。请在 Miru 设置里的「模型」页填写后再试。",
-        "模型配置还没有完成：聊天模型 缺少服务地址。请在 Miru 设置里的「模型」页填写后再试。",
-        "模型配置还没有完成：聊天模型 缺少模型名称。请在 Miru 设置里的「模型」页填写后再试。",
-    ]
-
-    for message in messages:
-        assert prompt._is_retryable_error(RuntimeError(message)) is False
-    assert prompt._is_retryable_error(RuntimeError("empty response")) is True
+def test_missing_model_settings_fail_before_provider_call():
+    import story_model
+    import pytest
+    for config in ({}, {'host':'example.test'}, {'model':'test'}):
+        with pytest.raises(ValueError, match='尚未設定'):
+            story_model.generate(config, 'system', 'user', 'test')
 
 
 # ---------------------------------------------------------------------------

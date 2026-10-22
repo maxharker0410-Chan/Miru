@@ -1,0 +1,158 @@
+/* A visual-novel stage: artwork first, dialogue below, tools on demand. */
+.topbar { background: #13111af5; border-color: #d8bf8726; padding: 12px 22px; }
+.play-toolbar { display: flex; align-items: center; gap: 8px; }
+.tools-menu { position: relative; }
+.tools-menu summary { cursor: pointer; list-style: none; border: 1px solid #6d6279; border-radius: 12px; padding: 8px 14px; color: #eee5f5; }
+.tools-menu summary::-webkit-details-marker { display: none; }
+.tools-menu summary::after { content: '⌄'; margin-left: 10px; }
+.tools-menu[open] summary { background: #30263f; }
+.tools-menu .actions { position: absolute; right: 0; top: calc(100% + 10px); z-index: 30; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: min(340px, calc(100vw - 24px)); padding: 16px; border: 1px solid #756386; border-radius: 18px; background: #1b1525; box-shadow: 0 16px 44px #0009; }
+.tools-menu .btn { min-height: 42px; text-align: center; }
+.tools-menu summary:focus-visible { outline: 2px solid var(--violet); outline-offset: 4px; }
+.play-layout { display: flex; height: auto; }
+.stage-column { width: 100%; min-width: 0; overflow: visible; }
+.stage-wrap { flex: none; min-height: 460px; border-bottom: 1px solid #d8bf8740; background: radial-gradient(ellipse at 50% 35%, #493e60, #181321 75%); }
+.stage-bg { filter: brightness(.93); transition: opacity .5s ease; }
+.stage-wrap::after { z-index: 1; pointer-events: none; background: linear-gradient(180deg, #100b1e8c, transparent 27%, transparent 65%, #100b1e9c); }
+.stage-copy { top: 22px; left: 30px; right: auto; max-width: calc(100% - 60px); }
+.stage-copy .eyebrow { font-size: 10px; color: #e8d5af; letter-spacing: .18em; }
+.stage-copy h1 { font-size: clamp(22px, 2.5vw, 32px); margin: 4px 0; font-weight: 650; }
+.stage-meta { display: block; color: #eee4d7; font-size: 12px; }
+.cast-stage { z-index: 2; }
+.cast-stage .actor.active { max-width: 480px; width: 48%; }
+.cast-stage.has-speaker .actor b { visibility: hidden; }
+.cast-stage .actor { filter: brightness(.82) saturate(.88); opacity: .83; }
+.cast-stage .actor.active { filter: brightness(1); opacity: 1; }
+.speech-bubble { top: auto; bottom: 22px; left: 50%; width: min(900px, calc(100% - 56px)); padding: 14px 22px 12px; border: 1px solid #bca276; border-radius: 18px; background: #fff8eaf5; color: #342c31; box-shadow: 0 10px 36px #0d07184d, inset 0 0 0 4px #ffffff50; backdrop-filter: blur(12px); }
+.speech-bubble::after { display: none; }
+.speech-heading { padding-bottom: 8px; border-bottom: 1px solid #a18b6b38; }
+.speech-heading strong { font-size: 16px; color: #714d69; letter-spacing: .04em; }
+.speech-heading small { color: #8b766e; }
+.speech-bubble p { margin: 9px 0 0; font-size: 15px; line-height: 1.7; max-height: 180px; }
+.bubble-nav { margin-top: 12px; }
+.bubble-nav button { min-height: 36px; padding: 6px 14px; border-color: #bda98770; color: #5f4862; background: #f4ebde; }
+.bubble-nav button:not(:disabled):hover { background: #eaddcc; }
+.stage-note { top: auto; bottom: 24px; width: min(760px, calc(100% - 48px)); background: #fff8eaf2; color: #4b3e48; border: 1px solid #bca276; border-radius: 18px; padding: 22px 26px; text-align: left; line-height: 1.8; }
+.player-caption { top: 24px; bottom: auto; left: auto; right: 28px; width: min(350px, 42%); border-color: #ead6ad45; border-radius: 12px; background: #21172bd9; padding: 9px 13px; z-index: 3; }
+.player-caption strong { color: #e8d5af; font-size: 10px; }
+.player-caption p { color: #f4edf6; font-size: 12px; line-height: 1.5; max-height: 54px; }
+.stage-controls { flex: none; width: 100%; background: #15111d; }
+.stage-controls .chat-form { max-width: 960px; margin: auto; border-top: 0; padding: 12px 24px max(12px, env(safe-area-inset-bottom)); }
+.chat-form textarea { background: #20192b; border-color: #685471; border-radius: 14px; min-height: 48px; }
+.chat-form .btn.primary { min-width: 76px; background: #b291c7; color: #20172b; border-radius: 14px; }
+.composer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.composer-main textarea { width: 100%; }
+.action-btn { align-self: flex-start; min-height: 40px; padding: 8px 10px; font-size: 12px; }
+.action-preview { padding: 5px 2px 0; color: #dcc7e9; font-size: 12px; max-height: 54px; overflow: auto; }
+.player-action { color: #e4c5f5; font-style: italic; }
+.player-action small { display: inline; padding: 1px 5px; margin-right: 5px; border: 1px solid #a785b880; border-radius: 5px; font-style: normal; font-size: 10px; }
+.line .player-action { color: #ecd3ff; }
+.stage-controls .next { justify-content: center; border: 0; padding: 8px 20px 0; }
+.world-travel { max-width: 960px; margin: auto; background: transparent; border: 0; }
+.travel-options { max-width: 960px; margin: auto; padding: 8px 24px 0; }
+.travel-options summary { cursor: pointer; width: fit-content; padding: 4px 0; color: #c8b5d9; font-size: 12px; }
+.travel-options summary:focus-visible { outline: 2px solid var(--violet); outline-offset: 4px; }
+.travel-options .world-travel { padding: 10px 0; }
+.state-dialog { width: min(460px, 94vw); }
+.state-dialog .story-pane { border: 0; height: auto; max-height: 65dvh; overflow: auto; }
+.state-dialog .pane-head { border: 0; padding-bottom: 0; }
+.state-dialog .pane-head strong { display: none; }
+@media (min-width: 951px) {
+  #player.on { overflow: auto; }
+  .stage-column { height: auto; }
+}
+@media (max-width: 640px) {
+  .topbar { min-height: 64px; padding: 10px 12px; flex-wrap: nowrap; }
+  .title-group { gap: 8px; flex: 1; }
+  .title-group strong { max-width: 31vw; font-size: 14px; }
+  .play-toolbar { gap: 6px; }
+  .topbar .btn, .tools-menu summary { font-size: 12px; padding: 8px 10px; }
+  .stage-copy { top: 17px; left: 18px; max-width: calc(100% - 36px); }
+  .stage-copy h1 { font-size: 23px; }
+  .stage-copy .eyebrow { font-size: 9px; }
+  .player-caption { top: 92px; right: 16px; left: 16px; width: auto; padding: 7px 11px; }
+  .player-caption p { max-height: 38px; font-size: 12px; margin-top: 2px; }
+  .speech-bubble { bottom: 16px; width: calc(100% - 28px); padding: 12px 15px 10px; border-radius: 16px; }
+  .speech-bubble p { font-size: 14px; line-height: 1.65; max-height: 168px; }
+  .speech-heading strong { font-size: 15px; }
+  .cast-stage .actor.active { width: 78%; max-width: 380px; }
+  .cast-stage .actor:not(.active) { width: 32%; }
+  .stage-controls .chat-form { padding: 10px 14px max(12px, env(safe-area-inset-bottom)); }
+  .stage-note { bottom: 16px; width: calc(100% - 28px); }
+  .tools-menu .actions { gap: 7px; padding: 12px; }
+}
+@media (display-mode: fullscreen), (display-mode: standalone) {
+  .topbar { height: auto; min-height: 68px; padding-top: max(10px, env(safe-area-inset-top)); }
+}
+@media (min-width: 560px) and (max-height: 540px) and (orientation: landscape) {
+  .topbar { height: 44px; min-height: 44px; padding: max(4px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 4px max(12px, env(safe-area-inset-left)); flex-wrap: nowrap; }
+  .title-group { flex: 1; min-width: 0; gap: 8px; }
+  .title-group strong { max-width: 35vw; font-size: 13px; }
+  .topbar .btn, .tools-menu summary { padding: 5px 10px; font-size: 12px; }
+  .play-layout { min-height: 0; }
+  .stage-copy { top: 8px; left: max(14px, env(safe-area-inset-left)); max-width: 38%; }
+  .stage-copy .eyebrow { display: none; }
+  .stage-copy h1 { font-size: 17px; }
+  .stage-meta { font-size: 11px; }
+  .cast-stage { left: 0; right: 48%; }
+  .cast-stage .actor.active { width: 100%; max-width: 480px; }
+  .cast-stage .actor:not(.active) { width: 40%; }
+  .speech-bubble { bottom: 10px; width: 44%; padding: 8px 12px; border-radius: 14px; }
+  .speech-heading { padding-bottom: 4px; }
+  .speech-heading strong { font-size: 12px; }
+  .speech-bubble p { font-size: 13px; line-height: 1.5; margin-top: 6px; max-height: 90px; }
+  .bubble-nav { margin-top: 6px; }
+  .bubble-nav button { min-height: 32px; padding: 4px 12px; font-size: 11px; }
+  .player-caption { top: 10px; right: 12px; left: auto; width: 44%; padding: 5px 10px; }
+  .player-caption strong { display: none; }
+  .player-caption p { font-size: 11px; line-height: 1.4; max-height: 17px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stage-note { left: 76%; bottom: 10px; width: 44%; padding: 12px 16px; max-height: calc(100% - 72px); overflow: auto; }
+  .stage-controls .chat-form { padding: 4px max(12px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .chat-form textarea { height: 40px; min-height: 40px; max-height: 64px; }
+  .travel-options { padding: 2px 12px 0; }
+  .travel-options summary { padding: 2px 0; }
+  .tools-menu .actions { max-height: calc(100dvh - 60px); overflow: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-bg, .cast-stage .actor { transition: none; }
+}
+/* v1.1: the viewport is the stage; only dedicated panels scroll. */
+html, body { overflow: hidden; }
+.shell { height: 100dvh; min-height: 0; }
+.main { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.topbar { flex: none; }
+.view.on { flex: 1; min-height: 0; overflow: auto; }
+#player.on { overflow: hidden; }
+.play-layout { height: 100%; min-height: 0; }
+.stage-column { height: 100%; overflow: hidden; display: flex; flex-direction: column; }
+.stage-wrap { flex: 1; min-height: 0; }
+.stage-controls { flex: none; }
+.stage-controls .next, .travel-options { display: none; }
+.stage-controls .next:has(#startStory) { display: flex; }
+.cast-stage { left: 3%; right: 3%; }
+.speech-bubble { bottom: 8px; width: min(960px, calc(100% - 28px)); padding: 8px 16px; }
+.speech-bubble p { max-height: 100px; overflow-y: auto; }
+.speech-heading { padding-bottom: 4px; }
+.bubble-nav { margin-top: 6px; }
+.stage-copy h1 { font-size: clamp(16px, 2.3vw, 28px); }
+.player-caption { max-width: 32%; }
+.sandbox-dialog { padding: 20px; width: min(650px, 94vw); max-height: 90dvh; overflow: auto; }
+.sandbox-dialog form { display: grid; gap: 12px; }
+.sandbox-dialog select { color: var(--ink); background: #21192b; padding: 10px; border-radius: 8px; max-width: 100%; }
+.sandbox-dialog select[multiple] { min-height: 100px; }
+#panelContent { margin-top: 12px; }
+#worldClock { font-size: 11px; }
+@media (max-height: 540px) and (orientation: landscape) {
+  .cast-stage { left: 3%; right: 3%; }
+  .speech-bubble { bottom: 6px; width: calc(100% - 28px); }
+  .speech-bubble p { max-height: 60px; margin-top: 4px; }
+  .speech-heading strong { font-size: 12px; }
+  .player-caption { top: 8px; right: 14px; max-width: 40%; }
+  .stage-note { left: 50%; width: calc(100% - 28px); max-height: 100px; }
+  .chat-form textarea { min-height: 36px; height: 36px; }
+  .action-btn, #continueBtn { font-size: 11px; padding: 5px 8px; }
+}
+
+.cast-stage.has-speaker .actor b { display: none; }
+.cast-stage.has-speaker .actor img { height: 100%; }
+.cast-stage.has-speaker .actor.active img { width: auto; max-width: none; height: 100%; }

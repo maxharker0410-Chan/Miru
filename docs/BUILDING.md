@@ -1,101 +1,36 @@
-# Building Miru
+# 建置 S.Chat
 
-Miru has four release targets: macOS arm64, Windows x64, Android arm64, and a
-Linux amd64 Docker image. The current public source baseline is Python 3.12,
-Rust/Tauri 2, Node.js, and Java 21 for Android.
+## 本機 Web
 
-## Third-party Live2D files
-
-The public source archive does not redistribute Live2D Cubism Core, the Cubism
-Native Framework, or the Hiyori sample model. Obtain matching files from
-Live2D under the applicable Live2D terms and place them at:
-
-```text
-assets/js/live2d/live2d.min.js
-assets/js/live2d/CubismSdkForWeb-5-r.3/Core/live2dcubismcore.min.js
-assets/live2d/Hiyori/
-miru-mobile/android/app/src/main/cpp/CubismCore/
-miru-mobile/android/app/src/main/cpp/Framework/
-```
-
-The Android Core directory must contain the arm64-v8a static library and
-headers expected by `miru-mobile/android/app/src/main/cpp/CMakeLists.txt`.
-
-## Backend and tests
-
-```bash
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-PYTHONPATH=. .venv/bin/python -m pytest tests/ -q
-```
-
-Copy `.env.example` to `.env` only for direct development. Never commit model
-API keys, SSH private keys, invitation codes, or production server addresses.
-
-## macOS arm64
-
-Prerequisites: macOS, Xcode Command Line Tools, Rust, Node.js, Python 3.12, and
-the Live2D files above.
-
-```bash
-npm ci
-(cd src-tauri && cargo test && cargo build --release)
-bash build_mac.sh
-```
-
-The DMG is created under `dist/`. The public build is ad-hoc signed and is not
-Apple-notarized.
-
-## Windows x64
-
-Prerequisites: Windows x64, Python 3.12, Rust, Node.js, Inno Setup 6, and the
-desktop Live2D files above.
+使用 Python 3.12，建立虛擬環境後安裝：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build_windows.ps1
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements-server.txt
+.venv/Scripts/python app.py
 ```
 
-The installer is created under `dist\windows-installer\`. The public build is
-not Authenticode-signed.
+服務預設只監聽 `127.0.0.1:5001`。現有伺服器登入仍使用原邀請碼；首次本機帳號請從 Windows 版選擇「本機遊玩」。不會自動建立 API Key。
 
-## Ubuntu 22.04 desktop (X11 preview)
+設定 `DATA_DIR` 可使用原資料根目錄，包含 `users/<uid>/s_chat/` 及 `_admin/ai_config.json`。Windows 繼續使用 `%LOCALAPPDATA%/Miru/`，保留原 config、模型與故事。先備份資料再升級；不要把私人資料加入 Git。
 
-This source-run client uses PySide6/Qt WebEngine. Run it inside an X11 desktop
-session; Wayland is not supported. Obtain the desktop Live2D files listed above.
+## Windows
 
-```bash
-sudo apt-get install python3-venv libxcb-cursor0 libxkbcommon-x11-0
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-linux.txt
-.venv/bin/python -s linux_launcher.py
+```powershell
+./build_windows.ps1
 ```
 
-The default pet shortcut is `Ctrl+Alt+M`. Closing the main window exits the
-client; minimizing keeps it running. Data is stored under
-`${XDG_DATA_HOME:-~/.local/share}/Miru`. No Linux installer package is built.
+或在已安裝依賴的環境執行 `python -m PyInstaller schat_windows.spec --noconfirm`。輸出 `dist/S.Chat/` 必須整個保留，不能只複製 EXE。需要系統 WebView2。關閉主視窗會結束本機服務；最小化可繼續運行。
 
-## Android arm64
+## 測試
 
-Prerequisites: Node.js, Java 21, Android SDK, NDK 27.3.13750724, Python 3.12,
-and all Live2D files above.
-
-```bash
-cd miru-mobile
-npm ci
-npx cap sync android
-cd android
-JAVA_HOME=/path/to/jdk-21 ANDROID_HOME=/path/to/android-sdk ./gradlew assembleDebug
+```powershell
+python -m pytest -q
+node --test tests/schat_library_checks.cjs tests/schat_speech_checks.cjs
 ```
 
-The current public APK is a debug-signed arm64 build. Production distribution
-should use a private release keystore and must not commit that keystore.
+GitHub Actions「S.Chat Windows」執行測試、建置並產生 Windows artifact；不部署或合併。
 
-## Linux amd64 server image
+## 配對手機服務
 
-```bash
-bash deploy/docker_build.sh
-bash deploy/docker_export_image_tar.sh
-```
-
-The server image does not need the desktop or Android Live2D files. Its runtime
-data must be mounted outside the container as documented in `deploy/README.md`.
+`scripts/serve_mobile.py --state-dir <既有配對狀態目錄> --port 5086` 保留原手機配對與資料。外部連線需要原來的 HTTPS 轉送；臨時連線需提供服務的電腦保持開機。PWA 安裝不是獨立雲端主機。

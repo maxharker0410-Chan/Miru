@@ -1,45 +1,17 @@
-# Local agent configuration
-.claude/
-
-# Python
 __pycache__/
 *.py[cod]
-*.egg-info/
+.pytest_cache/
+.venv*/
 venv/
-.venv/
-.venv-windows/
-.env
-
-# Frontend dependencies
-node_modules/
-miru-mobile/node_modules/
-
-# Runtime data and process files
-data/*
-.docker/
-.child_pids
-.pet.pid
-
-# Keep bundled Miru model metadata when present
-!data/models/
-!data/personas/
-!data/model_library.json
-
-# Build output
 build/
 dist/
-dist-world-import/
-artifacts/
-public-source-export/
-src-tauri/target/
-miru-mobile/android/.gradle/
-miru-mobile/android/build/
-miru-mobile/android/app/build/
-miru-mobile/android/local.properties
-miru-mobile/*.apk
-.pytest_cache/
-*.spec.bak
-
-# System files
-.DS_Store
-Thumbs.db
+node_modules/
+data/
+.env
+.env.*
+!.env.example
+*.zip
+*.docx
+*.log
+*.pem
+*.key

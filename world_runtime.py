@@ -3,6 +3,9 @@ import json
 import re
 import uuid
 import story_engine as engine
+import story_memory
+import story_input
+import sandbox
 
 
 class ConflictError(engine.StoryError):
@@ -11,11 +14,19 @@ class ConflictError(engine.StoryError):
 
 def initialize(story, session):
     if session.get('world_state'):
+        changed = False
+        for character in story['characters']:
+            cid = character['id']
+            if cid not in session['world_state']['characters']:
+                session['world_state']['characters'][cid] = {'location_id':None,
+                    'home_region_id':character.get('region_id'), 'availability':'away'}
+                session['world_state']['memory_entries'][cid] = []
+                changed = True
         revision = story['world'].get('author_settings', {}).get('revision', 0)
         if session['world_state'].get('author_settings_revision', 0) != revision:
             session['world_state']['author_settings_revision'] = revision
             return True
-        return False
+        return changed
     definition = story['world']['definition']
     session['world_state'] = {
         'world_id':definition['world_id'], 'world_version':definition['world_version'],
@@ -54,7 +65,7 @@ def commit(session, event_id, kind, details):
 def eligible(story, session):
     scene = engine._scene(story, session['scene_id'])
     state = session['world_state']
-    return [c for c in story['characters'] if (
+    return [c for c in story['characters'] if sandbox.alive(session, c['id']) and (
         state['characters'][c['id']]['location_id'] == scene['id'] or (
             state['characters'][c['id']]['location_id'] is None
             and state['characters'][c['id']]['availability'] != 'traveling'
@@ -187,6 +198,8 @@ def action(user_dir, story_id, session_id, body):
         if not story.get('world'):
             raise engine.StoryError('此故事不是已匯入的世界。')
         session = engine.get_session(user_dir, story_id, session_id)
+        story = sandbox.effective_story(story, session)
+        sandbox.require_playing(session)
         initialize(story, session)
         event_id = body.get('event_id')
         if not check_event(session, event_id, body.get('base_revision')):
@@ -206,6 +219,8 @@ def action(user_dir, story_id, session_id, body):
         elif kind in ('arrive', 'join', 'leave', 'depart'):
             if cid not in characters:
                 raise engine.StoryError('找不到這名角色。')
+            if not sandbox.alive(session, cid):
+                raise engine.StoryError('此角色已死亡，無法加入活人互動。')
             value = state['characters'][cid]
             if kind == 'arrive':
                 # User explicitly confirms this arrival; no elapsed travel time
@@ -235,6 +250,7 @@ def action(user_dir, story_id, session_id, body):
         else:
             raise engine.StoryError('不支援的世界操作。')
         commit(session, event_id, kind, {key:body[key] for key in ('character_id','location_id') if key in body})
+        sandbox.finish(session)
         engine._write(engine._session_path(user_dir, story_id, session_id), session)
         return session
 
@@ -260,7 +276,8 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
     candidates += [c for c in available if c['id'] not in candidate_ids][:12]
     accessible = {c['id'] for c in candidates}
     public = [m for m in session['messages'][-40:] if m.get('scene_id') == scene['id']]
-    player_message = {'scene_id':scene['id'], 'speaker':'player', 'text':line, 'witness_ids':list(session['cast'])}
+    parts = story_input.input_parts(line)
+    player_message = {'scene_id':scene['id'], 'speaker':'player', 'text':line, 'input_parts':parts, 'witness_ids':list(session['cast'])}
     public.append(player_message)
     director_system = ('你是世界故事導演。保留穩定角色ID；只安排 available_characters 中同處此地或可合理到場的人。'
         '重要角色通常留在其 home_region_id 區域執行工作與生活；跨區出現需要已有同行或冒險、任務移動紀錄。'
@@ -283,10 +300,12 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         'character_id 必須是當下在場者或已有該旅程紀錄的人；location_id 是目的地，purpose 用 adventure 或 quest，'
         'status 用 departed 或 arrived；evidence 必須逐字引用 player_input 或 history 的公開片段（至少6字）。'
         '只是出發時用 departed，不能假定已到達或將作者事件種子當已發生。'
-        '不要改寫共通設定、擅自啟動事件種子或共享私人記憶。輸出JSON：'
+        '不要改寫共通設定、擅自啟動事件種子或共享私人記憶。'
+        'situation 與 character_statuses 只含當下公開可觀察資訊，不得轉述離場期間的私下對話或私人記憶。輸出JSON：'
         '{"speaker_ids":[],"present_ids":[],"next_scene_id":null,"travel_status":"proposed","travel_allowed":true,'
         '"traveling_ids":[],"leave_ids":[],"character_journeys":[],"situation":"當下環境","character_statuses":{}}。')
-    direction = generate(director_system, json.dumps({
+    direction = generate(director_system + story_input.PLAYER_INPUT_RULES + sandbox.DIRECTOR_RULES, json.dumps({
+        'sandbox_context':sandbox.director_context(session),
         'scene':{'id':scene['id'], 'title':scene['title'], 'region_id':scene.get('region_id'), 'cast':session['cast']},
         'available_characters':[{'id':c['id'], 'name':c['name'], 'role':c['identity'].get('display_label'),
             'availability':state['characters'][c['id']]['availability'],
@@ -301,7 +320,7 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         'region_setting':story['world'].get('author_settings', {}).get('public_regions', {}).get(scene.get('region_id'), ''),
         'next_scenes':[{'id':s['id'], 'title':s['title']} for s in story['scenes'] if s['id'] != scene['id']],
         'canon_rules':[r['text'] for r in story['world']['definition'].get('canon_rules', [])],
-        'player_input':line, 'history':public[-20:]}, ensure_ascii=False), 'schat_director')
+        'player_input':line, 'player_input_parts':parts, 'history':public[-20:]}, ensure_ascii=False), 'schat_director')
     if not isinstance(direction, dict):
         raise engine.StoryError('故事導演回覆格式錯誤。')
     confirmed = explicit_arrival(story, line)
@@ -310,7 +329,10 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         direction['travel_status'] = 'arrived'
     elif direction.get('travel_allowed') is False:
         direction['next_scene_id'] = None
+        state['pending_travel'] = None
     target = direction.get('next_scene_id')
+    if target == scene['id'] and direction.get('travel_status') == 'arrived':
+        state['pending_travel'] = None
     arrived = (isinstance(target, str) and target in {s['id'] for s in story['scenes']}
                and target != scene['id'] and direction.get('travel_status') == 'arrived')
     # present_ids describes the destination on an arrived turn. An existing
@@ -359,6 +381,9 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         session['cast'] = [cid for cid in session['cast'] if cid not in leaving]
     for cid in leaving:
         state['characters'][cid]['availability'] = 'away'
+    narration = sandbox.apply_direction(story, session, direction, line, public)
+    chars = {c['id']:c for c in story['characters']}
+    session['cast'] = [cid for cid in session['cast'] if sandbox.alive(session, cid)]
     player_message['witness_ids'] = list(session['cast'])
     if valid_presence:
         session['situation'] = engine._short(direction.get('situation'), 600)
@@ -366,9 +391,14 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         if cid in session['cast']:
             engine._set_public_status(session, cid, value)
     selected = [cid for cid in engine._presence_ids(direction.get('speaker_ids'), chars) if cid in session['cast']][:3]
-    if not selected:
+    if not selected and direction.get('speaker_ids') != []:
         selected = session['cast'][:1]
+    if session['sandbox']['run_status'] == 'dead':
+        selected = []
     new_messages = [player_message]
+    if narration:
+        new_messages.append({'scene_id':scene['id'], 'speaker':'narrator', 'text':narration,
+                             'witness_ids':list(session['cast'])})
     for journey in journeys:
         new_messages.append({'scene_id':scene['id'], 'speaker':'narrator',
             'text':chars[journey['character_id']]['name'] + '：' + journey['evidence'],
@@ -378,24 +408,26 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
         new_messages.append(arrival)
     for cid in selected:
         character = chars[cid]
-        history = [m for m in session['messages'][-40:] if cid in m.get('witness_ids', [])] + new_messages
+        history = story_memory.witnessed_history(session['messages'] + new_messages, cid)
         actor_system = ('你扮演自己的角色，只讀取授權的知識與自己的記憶。公開名錄不代表見過面或有私交；'
             '未授權事實不知道，傳言保持傳言。未設定姓名或個性不要自行定稿。'
             '只能描述自己的完整回覆和動作，不把不在場的人寫成在旁邊。'
+            '個人記憶按經歷順序排列，舊經歷供回憶；目前位置、在場者和最新狀態以 scene 為準。'
             '作者同行條件與自己的職務仍需遵守；已開始的旅程不要要求玩家重選開局或擅自指定玩家的身世、能力、感情。'
             'scene 是本回合實際位置；已換場才描述抵達目的地，pending_travel 只是提案時不能說已抵達。'
             '只能從已設定圖片狀態選圖，未改變時省略。繁體中文JSON：'
             '{"text":"完整回覆","remember":["本人記住的經歷"],"public_status":"可觀察狀態","visual_state":""}。')
-        answer = generate(actor_system, json.dumps({
+        answer = generate(actor_system + story_input.PLAYER_INPUT_RULES + sandbox.ACTOR_RULES, json.dumps({
+            'personal_context':sandbox.actor_context(session, cid),
             'character':{'id':cid, 'name':character['name'], 'personality':character['personality'],
                          'backstory':character['backstory'], 'author_identity':{k:v for k,v in character['identity'].items() if k not in ('portrait_asset_key','author_card')}},
             'authorized_knowledge':knowledge_for(story, character),
             'world_rules':story['world'].get('author_settings', {}).get('public_rules', ''),
             'scene':{'id':scene['id'], 'title':scene['title'], 'cast':session['cast']},
-            'current_situation':session['situation'], 'your_private_memory':session['memories'][cid][-20:],
+            'current_situation':session['situation'], 'your_private_memory':story_memory.recall(session, cid, line),
             'pending_travel':state['pending_travel'],
             'available_visual_states':engine._visual_options(character),
-            'player_input':line, 'public_history':history[-20:]}, ensure_ascii=False), 'schat_character')
+            'player_input':line, 'player_input_parts':parts, 'public_history':history[-20:]}, ensure_ascii=False), 'schat_character')
         if not isinstance(answer, dict) or not engine._short(answer.get('text'), 12000):
             raise engine.StoryError('角色回覆格式錯誤。')
         message = {'scene_id':scene['id'], 'speaker':cid, 'text':engine._short(answer['text'], 12000),
@@ -413,5 +445,7 @@ def take_turn(user_dir, story, session, text, generate, event_id, base_revision)
     commit(session, event_id, 'turn', {'present_character_ids':list(session['cast']),
         'location_id':session['scene_id'], 'character_journeys':journeys})
     session['messages'] = (session['messages'] + new_messages)[-200:]
+    sandbox.finish(session, event_id)
+    session.pop('_turn_origin_scene', None)
     engine._write(engine._session_path(user_dir, story['id'], session['id']), session)
     return session
