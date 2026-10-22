@@ -1,11 +1,9 @@
-# Security Policy
+# 安全與資料
 
-Please do not publish credentials, invitation codes, private server addresses,
-or user data in a public issue.
+API 資料依原邀請碼或配對登入隔離。手機入口只開放 S.Chat；不暴露本機設定或管理端點。API Key 存在服務端原設定中，不回傳給故事頁或加入離線快取。
 
-For a security-sensitive report, contact the maintainers using the email listed
-in `README.md`. Include the affected version, reproduction steps, and impact,
-but redact all secrets and personal data.
+故事 ZIP 僅讀取資料，禁止執行包內程式。檢查路徑、容量、連結、重複 ID、圖片雜湊及格式。Word 只讀 OOXML 文字，不執行巨集、外部網址或內嵌指令。
 
-Miru is self-hosted software. Users are responsible for protecting their model
-API keys, SSH keys, server firewall rules, Docker host, and local data directory.
+私人 NPC 記憶、信念、關係及計畫由服務端保存；遊玩面板僅取得玩家視角。作者編輯介面仍可檢視自己提供的設定，並非對作者隱藏其作品。
+
+請透過 GitHub 的私人漏洞回報管道回報問題，不要在公開 Issue 貼上憑證或私人存檔。

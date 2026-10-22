@@ -59,7 +59,8 @@ def read_document(stream, story):
     package = Package(stream)
     try:
         raw = package.read('word/document.xml')
-        if len(raw) > 4 * 1024 * 1024 or b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:
+        probe = raw.replace(b'\x00',b'').upper()
+        if len(raw) > 4 * 1024 * 1024 or b'<!DOCTYPE' in probe or b'<!ENTITY' in probe:
             raise engine.StoryError('設定書 XML 過大或包含不支援的定義。')
         try:
             root = ET.fromstring(raw)

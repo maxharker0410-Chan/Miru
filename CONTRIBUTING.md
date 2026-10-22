@@ -1,17 +1,7 @@
-# Contributing
+# 貢獻 S.Chat
 
-Contributions are welcome through GitHub issues and pull requests.
+變更請提交可檢視的 PR，包含問題、使用者可見的結果及驗證方式。每個故事與遊玩分支必須隔離；角色 ID 不應因改名、補圖或讀檔改變。
 
-1. Create a focused branch from `main`.
-2. Keep local single-device and private-server behavior isolated.
-3. Add or update tests for behavioral changes.
-4. Run `PYTHONPATH=. .venv/bin/python -m pytest tests/ -q`.
-5. Run `bash scripts/scan_secrets.sh` before committing.
+請執行 `python -m pytest -q` 及 `npm test`。修改打包內容時另檢查 Windows 啟動。測試使用隔離目錄，不呼叫真實模型或讀取私人設定；手動端到端驗證需另行授權及紀錄。
 
-Do not include model API keys, SSH keys, invitation codes, user data, private
-server addresses, generated packages, or third-party Live2D files. See
-`docs/BUILDING.md` and `THIRD_PARTY_NOTICES.md`.
-
-Changes to shared server behavior require regression checks on macOS, Windows,
-Android, and Docker. UI changes should include screenshots for the affected
-desktop and mobile viewports.
+不得提交 API Key、配對碼、帳號資料、作者私人設定書、素材 ZIP 或遊玩紀錄。保留 Apache-2.0 與第三方授權聲明。

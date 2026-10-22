@@ -104,6 +104,8 @@ def test_story_routes_media_and_turn(tmp_path, monkeypatch):
     client = app.app.test_client()
     shell = client.get("/s-chat")
     assert shell.status_code == 200 and b"S. Chat" in shell.data
+    stage_css = client.get("/assets/css/schat-stage.css")
+    assert stage_css.status_code == 200 and stage_css.mimetype == "text/css"
     created = client.post("/api/schat/stories", json=definition())
     assert created.status_code == 201
     story_id = created.json["id"]
@@ -112,7 +114,8 @@ def test_story_routes_media_and_turn(tmp_path, monkeypatch):
     sid = started.json["id"]
     response = client.post(f"/api/schat/stories/{story_id}/sessions/{sid}/turn", json={"text": "你好"})
     assert response.status_code == 200
-    assert response.json["memories"]["alice"] == ["玩家到訪"]
+    assert response.json["memories"] == {}  # Player panels do not reveal NPC private memories.
+    assert story_engine.get_session(tmp_path, story_id, sid)["memories"]["alice"] == ["玩家到訪"]
     image = Image.new("RGBA", (4, 4), (255, 0, 0, 0))
     data = BytesIO()
     image.save(data, "PNG")

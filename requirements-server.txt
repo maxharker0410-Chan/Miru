@@ -1,12 +1,8 @@
-flask
+flask>=3.1,<4
 flask-compress
 Pillow
-pywebpush
-anthropic
 openai
 httpx[socks]
-psycopg[binary]
-pydantic
 requests
+waitress
 qrcode[pil]
-paramiko

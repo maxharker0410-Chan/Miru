@@ -13,6 +13,51 @@ function reader(messages) {
 }
 const msg = (speaker, text, scene_id='one', dialogue) => ({speaker,text,scene_id,dialogue});
 const scene = {id:'one',cast:['alice','bob']};
+
+function fullscreenReader({supported=true, enabled=true, installed=false, reject=false} = {}) {
+  let calls = 0;
+  const notices = [];
+  const document = {fullscreenElement:null, fullscreenEnabled:enabled, documentElement:{}};
+  if (supported) document.documentElement.requestFullscreen = async () => {
+    calls++;
+    if (reject) throw new Error('User activation unavailable');
+    document.fullscreenElement = document.documentElement;
+  };
+  const c = vm.createContext({document, matchMedia:() => ({matches:installed}), notice:text => notices.push(text)});
+  vm.runInContext(source.slice(source.indexOf('function fullscreenAppMode('), source.indexOf('let triedAutoFullscreen')), c);
+  return {c, notices, calls:() => calls};
+}
+
+test('fullscreen requests succeed once and keep the existing fullscreen session', async () => {
+  const {c, calls} = fullscreenReader();
+  assert.equal(await c.enterFullscreen(), true);
+  assert.equal(await c.enterFullscreen(), true);
+  assert.equal(calls(), 1);
+});
+
+test('unsupported fullscreen explains the Home Screen alternative', async () => {
+  for (const options of [{supported:false}, {enabled:false}]) {
+    const {c, notices, calls} = fullscreenReader(options);
+    assert.equal(await c.enterFullscreen(), false);
+    assert.equal(calls(), 0);
+    assert.match(notices[0], /主畫面/);
+  }
+});
+
+test('rejected automatic fullscreen stays quiet and manual retry provides guidance', async () => {
+  const {c, notices, calls} = fullscreenReader({reject:true});
+  assert.equal(await c.enterFullscreen(false), false);
+  assert.equal(notices.length, 0);
+  assert.equal(await c.enterFullscreen(), false);
+  assert.equal(notices.length, 1);
+  assert.equal(calls(), 2);
+});
+
+test('installed fullscreen mode does not request fullscreen again', async () => {
+  const {c, calls} = fullscreenReader({installed:true});
+  assert.equal(await c.enterFullscreen(), true);
+  assert.equal(calls(), 0);
+});
 test('only the latest turn and currently present speakers appear', () => {
   const c = reader([msg('alice','old reply'),msg('player','private visit'),msg('cat','absent'),msg('bob','actions','one','spoken words')]);
   assert.equal(c.currentSpeech(scene).text, 'actions');
@@ -44,6 +89,20 @@ test('long Unicode replies keep every character across pages', () => {
   assert.equal(c.speechFrames.map(f => f.text).join(''), text);
   assert.ok(c.speechFrames.every(f => Array.from(f.text).length <= 240));
   assert.ok(c.speechFrames.every(f => !/[\uD800-\uDBFF]$/.test(f.text)));
+});
+
+test('rotating between narrow landscape and desktop retains the complete reply', () => {
+  const text = '星光照亮了新的旅程🙂。'.repeat(40);
+  const c = reader([msg('player','hello'),msg('alice',text)]);
+  c.matchMedia = () => ({matches:true});
+  c.currentSpeech(scene);
+  assert.ok(c.speechFrames.every(frame => Array.from(frame.text).length <= 40));
+  assert.equal(c.speechFrames.map(frame => frame.text).join(''), text);
+  const compactPages = c.speechFrames.length;
+  c.matchMedia = () => ({matches:false});
+  c.currentSpeech(scene);
+  assert.ok(c.speechFrames.length < compactPages);
+  assert.equal(c.speechFrames.map(frame => frame.text).join(''), text);
 });
 test('new reply resets selection even when capped history has the same length', () => {
   const c = reader([msg('player','first'),msg('alice','A'),msg('bob','B')]);

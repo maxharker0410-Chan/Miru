@@ -72,6 +72,9 @@ async function loadList() {
 }
 function view(next) {
   mode = next;
+  $('storyTools').open = false;
+  $('stateBtn').hidden = next !== 'player';
+  if (next !== 'player') $('stateDialog').close();
   $('importBtn').disabled = offline || busy;
   $('catalogBtn').hidden = !story?.world || next !== 'player';
   $('catalogBtn').disabled = busy || !session;
@@ -107,7 +110,7 @@ function updatePager(prefix, result) {
   $(prefix + 'Next').disabled = result.page >= result.totalPages;
 }
 function worldEvent(body) {
-  return story?.world ? {...body, event_id:uid(), base_revision:session?.world_state?.revision ?? 0} : body;
+  return {...body, event_id:uid(), base_revision:story?.world ? (session?.world_state?.revision ?? 0) : (session?.sandbox?.revision ?? 0)};
 }
 function renderCatalog() {
   const result = SChatLibrary.page(story.characters, {query:$('catalogSearch').value, kind:$('catalogKind').value, region:$('catalogRegion').value, page:catalogPage});
@@ -121,9 +124,11 @@ function renderCatalog() {
   }).join('') || '<p>沒有符合搜尋的角色。</p>';
 }
 function renderWorldTravel() {
+  $('travelOptions').hidden = !session;
   $('worldTravel').hidden = !session;
   if (!session) return;
   const pending = session.world_state?.pending_travel;
+  $('travelSummary').textContent = pending ? '旅行提案 · 展開查看' : '目的地選項';
   const target = pending?.location_id || session.scene_id;
   $('worldTravel').innerHTML = `<label for="worldDestination">手動選擇目的地（可選）</label><select id="worldDestination">${story.scenes.map(s => `<option value="${esc(s.id)}" ${s.id === target ? 'selected' : ''}>${esc(s.title)}</option>`).join('')}</select><button class="btn ghost" id="worldTravelConfirm" ${busy || offline ? 'disabled' : ''}>前往選定地點</button>${pending ? '<p>尚未出發。可在對話中描述前往或抵達，也可手動切換。</p>' : '<p>直接在對話中前往地點，背景與同行角色會隨劇情更新。</p>'}`;
 }
@@ -150,7 +155,7 @@ function renderEditor() {
   $('characterEditor').innerHTML = cp.rows.map(({item:c, index:i}) => `<article class="entry"><div class="entry-head"><h3>角色 ${i + 1}</h3><button class="btn ghost" data-remove="characters:${i}" ${story.world ? 'disabled' : ''}>移除</button></div><div class="fields"><div class="field"><label>名字</label><input aria-label="角色 ${i + 1} 名字" data-kind="characters" data-i="${i}" data-field="name" value="${esc(c.name)}" placeholder="角色名稱"></div><div class="field"><label>預設立繪</label>${pictureFields(c.avatar, `characters:${i}:avatar`, `角色 ${i + 1} 預設立繪`)}</div><div class="field full"><label>個性與說話方式</label><textarea aria-label="角色 ${i + 1} 個性" data-kind="characters" data-i="${i}" data-field="personality" placeholder="性格、語氣、禁忌、關係……">${esc(c.personality)}</textarea></div><div class="field full"><label>角色背景</label><textarea aria-label="角色 ${i + 1} 背景" data-kind="characters" data-i="${i}" data-field="backstory">${esc(c.backstory)}</textarea></div></div><p class="library-meta">${esc(c.id)}${c.search_label ? ` · 圖片索引：${esc(c.search_label)}` : ''}${c.identity?.name === null ? ' · 作者姓名尚未設定' : ''}</p>${renderVisualEditor(c, i)}</article>`).join('');
   $('sceneEditor').innerHTML = sp.rows.map(({item:s, index:i}) => `<article class="entry"><div class="entry-head"><h3>場景 ${i + 1}${i === 0 ? ' · 開場' : ''}</h3><button class="btn ghost" data-remove="scenes:${i}" ${story.world ? 'disabled' : ''}>移除</button></div><div class="fields"><div class="field"><label>場景名稱</label><input aria-label="場景 ${i + 1} 名稱" data-kind="scenes" data-i="${i}" data-field="title" value="${esc(s.title)}" placeholder="例如：雨夜圖書館"></div><div class="field"><label>背景圖片</label>${pictureFields(s.background, `scenes:${i}:background`, `場景 ${i + 1} 背景`)}</div><div class="field full"><label>場景描述與劇情目標</label><textarea aria-label="場景 ${i + 1} 描述" data-kind="scenes" data-i="${i}" data-field="description">${esc(s.description)}</textarea></div><div class="field full"><label>在場角色</label><div class="checks">${(story.world ? [] : story.characters).map(c => `<label class="check"><input type="checkbox" data-members="${i}" value="${esc(c.id)}" ${s.cast.includes(c.id) ? 'checked' : ''}> ${esc(c.name || '未命名角色')}</label>`).join('')}</div></div><div class="field full"><label>允許前往的下一場景</label><div class="checks">${(story.world ? [] : story.scenes).filter(n => n.id !== s.id).map(n => `<label class="check"><input type="checkbox" data-next="${i}" value="${esc(n.id)}" ${s.next.includes(n.id) ? 'checked' : ''}> ${esc(n.title || '未命名場景')}</label>`).join('') || '<span class="sub">新增第二個場景後即可設定</span>'}</div></div></div></article>`).join('');
 }
-function scene() { return story.scenes.find(s => s.id === (session?.scene_id || story.start_scene || story.scenes[0].id)) || story.scenes[0]; }
+function scene() { const scenes = session?.render_definition?.scenes || story.scenes; return scenes.find(s => s.id === (session?.scene_id || story.start_scene || scenes[0].id)) || scenes[0]; }
 function visual(c) {
   const state = session?.visuals?.[c.id] || {state_id: c.default_visual_state || '', locked: false};
   const definition = (c.visual_states || []).find(v => v.id === state.state_id);
@@ -169,7 +174,13 @@ function setBackground(name) {
   node.dataset.source = url;
   if (!url) { node.style.backgroundImage = ''; return; }
   const image = new Image(); image.referrerPolicy = 'no-referrer';
-  image.onload = () => { if (node.dataset.source === url) node.style.backgroundImage = `url(${JSON.stringify(url)})`; };
+  image.onload = () => {
+    if (node.dataset.source !== url) return;
+    node.style.backgroundImage = `url(${JSON.stringify(url)})`;
+    if (typeof node.animate === 'function' && !matchMedia('(prefers-reduced-motion:reduce)').matches) {
+      node.animate([{opacity:.3}, {opacity:1}], {duration:460, easing:'ease-out'});
+    }
+  };
   image.onerror = () => { if (node.dataset.source === url) { node.style.backgroundImage = ''; notice('背景圖片暫時無法載入，請檢查圖片網址。'); } };
   image.src = url;
 }
@@ -184,7 +195,9 @@ function renderVisualControls(s, chars) {
 }
 function currentSpeech(s) {
   const messages = session?.messages || [];
-  const pageSize = typeof matchMedia === 'function' && matchMedia('(max-width:640px)').matches ? 60 : 120;
+  const narrow = typeof matchMedia === 'function' && matchMedia('(max-width:640px)').matches;
+  const landscape = typeof matchMedia === 'function' && matchMedia('(min-width:560px) and (max-height:540px) and (orientation:landscape)').matches;
+  const pageSize = landscape && narrow ? 40 : narrow || landscape ? 60 : 120;
   // History is capped at 200 entries, so length alone cannot identify a new turn.
   const key = `${session?.id || ''}:${s.id}:${JSON.stringify(messages)}:${s.cast.join(',')}:${pageSize}`;
   if (key !== speechKey) {
@@ -214,6 +227,29 @@ function currentPlayer(s) {
   const message = [...(session?.messages || [])].reverse().find(m => m.speaker === 'player');
   return message ? {text: message.text, state: 'sent'} : null;
 }
+function inputParts(text) {
+  const parts = []; let cursor = 0;
+  for (const match of String(text).matchAll(/(?<!\*)(\*\*|\*)(?!\*)([\s\S]+?)(?<!\*)\1(?!\*)|「([^」]*)」/g)) {
+    const value = (match[1] ? match[2] : match[3]).trim();
+    if (!value) continue;
+    if (match.index > cursor) parts.push({kind:'speech', text:text.slice(cursor, match.index)});
+    parts.push({kind:match[1] ? 'action' : 'speech', text:value});
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) parts.push({kind:'speech', text:text.slice(cursor)});
+  return parts;
+}
+function formatPlayerInput(text) {
+  return inputParts(text).map(part => part.kind === 'action'
+    ? `<span class="player-action"><small>動作</small>${esc(part.text)}</span>`
+    : `<span>${esc(part.text)}</span>`).join('');
+}
+function renderInputPreview() {
+  const actions = inputParts($('chatInput').value).filter(part => part.kind === 'action');
+  $('actionPreview').hidden = !actions.length;
+  $('actionPreview').innerHTML = actions.map(part => `<span class="player-action"><small>動作</small>${esc(part.text)}</span>`).join(' ');
+  if (mode === 'player') requestAnimationFrame(positionSpeech);
+}
 function renderTracker(s) {
   const groups = story.state_tracker || [];
   $('trackerPanel').hidden = !groups.length;
@@ -227,19 +263,19 @@ function renderTracker(s) {
   $('trackerHint').textContent = session ? '依劇情更新；未發生變化的項目會保留。' : '以下為你設定的開場初始值。';
 }
 function positionSpeech() {
-  const stageNode = $('stage'), cast = $('castStage'), caption = $('playerCaption');
+  const stageNode = $('stage'), cast = $('castStage');
   const stageBounds = stageNode.getBoundingClientRect();
   const actors = [...cast.querySelectorAll('.actor')], foreground = cast.querySelector('.actor.active');
   const mobile = stageBounds.width <= 640;
-  const captionHeight = caption.hidden ? 0 : caption.getBoundingClientRect().height + 12;
-  const topNode = $('speechBubble').hidden ? $('stageNote') : $('speechBubble');
-  const topBottom = topNode.hidden ? 90 : topNode.getBoundingClientRect().bottom - stageBounds.top;
-  const bottom = captionHeight + 24;
-  // Give the speaking portrait its own space instead of dividing a row among everyone.
-  // Grow the scene for long dialogue; never shrink the portrait to fit under a bubble.
-  const height = actors.length ? (mobile ? Math.max(320, Math.min(400, innerHeight * .44)) : Math.max(380, Math.min(500, innerHeight * .52))) : 100;
-  stageNode.style.minHeight = `${Math.ceil(Math.max(mobile ? 560 : 620, topBottom + 28 + height + bottom))}px`;
-  cast.style.bottom = `${bottom}px`;
+  const landscape = matchMedia('(min-width:560px) and (max-height:540px) and (orientation:landscape)').matches;
+  const controlsHeight = document.querySelector('.stage-controls').getBoundingClientRect().height;
+  const headerHeight = document.querySelector('.topbar').getBoundingClientRect().height;
+  const stageHeight = Math.max(80, (window.visualViewport?.height || innerHeight) - headerHeight - controlsHeight - 2);
+  stageNode.style.minHeight = `${Math.ceil(stageHeight)}px`;
+  stageNode.style.height = `${Math.ceil(stageHeight)}px`;
+  // Portraits share the artwork plane; the bottom dialogue panel stays readable.
+  const height = Math.max(40, stageHeight - (landscape ? 8 : 24));
+  cast.style.bottom = '2px';
   cast.style.height = `${height}px`;
   const others = actors.filter(actor => actor !== foreground);
   others.forEach((actor, index) => {
@@ -253,7 +289,7 @@ function positionSpeech() {
   const bubble = $('speechBubble');
   if (bubble.hidden || !foreground) return;
   const stage = $('stage').getBoundingClientRect();
-  const target = stage.width / 2;
+  const target = stage.width * .5;
   const half = bubble.getBoundingClientRect().width / 2;
   const center = Math.max(half + 18, Math.min(stage.width - half - 18, target));
   bubble.style.left = `${center}px`;
@@ -262,13 +298,15 @@ function positionSpeech() {
 function renderPlay() {
   if (!story) return;
   $('restartBtn').hidden = !session;
-  const configuredScene = scene(), chars = Object.fromEntries(story.characters.map(c => [c.id, c]));
+  const configuredScene = scene(), chars = Object.fromEntries(allCharacters().map(c => [c.id, c]));
   const s = {...configuredScene, cast: (Array.isArray(session?.cast) ? session.cast : configuredScene.cast).filter(id => chars[id])};
   const changedCast = s.cast.length !== configuredScene.cast.length || s.cast.some(id => !configuredScene.cast.includes(id));
   $('playTitle').textContent = '當下狀態'; $('sceneTitle').textContent = s.title;
   $('sceneDescription').textContent = session?.situation || (changedCast ? (s.cast.length ? '目前在場：' + s.cast.map(id => chars[id].name).join('、') : '你目前獨自在這裡。') : s.description);
   setBackground(s.background);
   $('playSub').textContent = `${story.scenes.findIndex(n => n.id === s.id) + 1} / ${story.scenes.length} · ${s.cast.length} 名角色在場`;
+  const companions = session?.world_state?.party_character_ids?.length || 0;
+  $('stageMeta').textContent = `${s.cast.length} 名角色在場${companions ? ` · ${companions} 人同行` : ''}`;
   const pending = pendingPlayer?.sessionId === session?.id && pendingPlayer;
   const waiting = pending?.state === 'sending';
   const speech = pending ? null : currentSpeech(s), active = speech?.speaker;
@@ -286,7 +324,7 @@ function renderPlay() {
   if (pending?.state === 'failed') $('stageNote').textContent = '這次回覆未完成，故事進度與數值未變更。請重試。';
   const player = currentPlayer(s);
   $('playerCaption').hidden = !player;
-  $('playerText').textContent = player?.text || '';
+  $('playerText').innerHTML = formatPlayerInput(player?.text || '');
   $('playerDelivery').textContent = player?.state === 'sending' ? '已送出 · 等待回覆' : player?.state === 'failed' ? '未送成功 · 文字已回填，請重試' : '你';
   renderTracker(s);
   const markup = s.cast.map(id => {
@@ -302,15 +340,17 @@ function renderPlay() {
     const tags = [active === id ? '正在發言' : '', (c.visual_states || []).length ? v.label : '', v.locked ? '圖片固定' : ''].filter(Boolean);
     return `<article class="state-actor"><strong>${esc(c.name)}</strong><p>${esc(status)}</p><div class="state-tags">${tags.map(tag => `<span class="state-tag">${esc(tag)}</span>`).join('')}</div></article>`;
   }).join('') || '<p class="sub">目前沒有角色在場。</p>';
-  $('log').innerHTML = session ? session.messages.map(m => `<div class="line ${m.speaker === 'player' ? 'player' : m.speaker === 'narrator' ? 'narrator' : ''}"><b>${esc(chars[m.speaker]?.name || ({player:'你', narrator:'旁白'}[m.speaker] || m.speaker))}</b><p>${esc(m.text)}</p></div>`).join('') : '<div class="line narrator"><p>故事準備好了。按下「開始故事」，進入這個世界。</p></div>';
+  $('log').innerHTML = session ? session.messages.map(m => `<div class="line ${m.speaker === 'player' ? 'player' : m.speaker === 'narrator' ? 'narrator' : ''}"><b>${esc(chars[m.speaker]?.name || ({player:'你', narrator:'旁白'}[m.speaker] || m.speaker))}</b><p>${m.speaker === 'player' ? formatPlayerInput(m.text) : esc(m.text)}</p></div>`).join('') : '<div class="line narrator"><p>故事準備好了。按下「開始故事」，進入這個世界。</p></div>';
   $('log').scrollTop = $('log').scrollHeight;
   if (story.world) { $('nextScenes').innerHTML = session ? '' : `<button class="btn primary" id="startStory" ${busy || offline ? 'disabled' : ''}>開始故事</button>`; renderWorldTravel(); }
-  else { $('worldTravel').hidden = true;
+  else { $('worldTravel').hidden = $('travelOptions').hidden = true;
   $('nextScenes').innerHTML = session ? s.next.map(id => `<button class="btn ghost" data-advance="${esc(id)}" ${busy || offline ? 'disabled' : ''}>前往 ${esc(story.scenes.find(n => n.id === id)?.title || id)} ↗</button>`).join('') : `<button class="btn primary" id="startStory" ${busy || offline ? 'disabled' : ''}>開始故事</button>`;
   }
-  $('chatInput').disabled = $('sendBtn').disabled = !session || busy || offline;
-  $('chatInput').placeholder = offline ? '離線閱讀中；連線後可繼續對話' : '你會怎麼說、怎麼做？';
-  $('memoryList').innerHTML = session ? story.characters.map(c => `<p><strong>${esc(c.name)}</strong></p><ul>${(session.memories[c.id] || []).map(m => `<li>${esc(m)}</li>`).join('') || '<li>尚無個人記憶</li>'}</ul>`).join('') : '<p>開始故事後，角色才會記住經歷。</p>';
+  $('chatInput').disabled = $('sendBtn').disabled = !session || busy || offline || session?.sandbox?.run_status !== 'playing';
+  $('actionBtn').disabled = !session || busy || offline;
+  $('chatInput').placeholder = offline ? '離線閱讀中；連線後可繼續對話' : '台詞「…」或直接輸入，動作 *…*';
+  $('memoryList').innerHTML = (session?.panels?.journal || []).map(item => `<p>${esc(item.text)}</p>`).join('') || '<p>尚無玩家已知的重要事件。</p>';
+  renderSandboxStatus();
   renderVisualControls(s, chars);
   requestAnimationFrame(positionSpeech);
   if (!offline) {
@@ -323,7 +363,7 @@ document.addEventListener('error', e => {
   if (image.dataset.actorImage) {
     const fallback = image.dataset.fallback; delete image.dataset.fallback;
     if (fallback && fallback !== image.getAttribute('src')) { image.src = fallback; return; }
-    const c = story?.characters.find(c => c.id === image.dataset.actorImage);
+    const c = allCharacters().find(c => c.id === image.dataset.actorImage);
     const placeholder = document.createElement('div'); placeholder.className = 'silhouette'; placeholder.textContent = c?.name.slice(0, 1) || '?'; image.replaceWith(placeholder);
   } else if (image.classList.contains('thumb')) { image.hidden = true; }
 }, true);
@@ -420,7 +460,7 @@ document.addEventListener('click', async e => {
     if (d.removeVisual) { const [i, j] = d.removeVisual.split(':'); const c = story.characters[+i], [removed] = c.visual_states.splice(+j, 1); if (c.default_visual_state === removed.id) c.default_visual_state = ''; renderEditor(); }
     if (d.clearAsset) { setAsset(d.clearAsset, ''); renderEditor(); }
     if (d.advance) await mutateSession(() => api('/stories/' + story.id + '/sessions/' + session.id + '/advance', {method:'POST', body:JSON.stringify({scene_id:d.advance})}));
-    if (e.target.id === 'startStory') await mutateSession(() => api('/stories/' + story.id + '/sessions', {method:'POST'}));
+    if (e.target.id === 'startStory') openOpening();
   } catch (err) { notice(err.message); }
 });
 $('newStory').onclick = $('welcomeCreate').onclick = () => edit(true);
@@ -430,6 +470,17 @@ $('historyBtn').onclick = () => { $('historyDialog').showModal(); $('log').scrol
 $('historyClose').onclick = () => $('historyDialog').close();
 $('visualBtn').onclick = () => $('visualDialog').showModal();
 $('visualClose').onclick = () => $('visualDialog').close();
+$('stateBtn').onclick = () => $('stateDialog').showModal();
+$('stateClose').onclick = () => $('stateDialog').close();
+$('travelOptions').addEventListener('toggle', () => {
+  if (mode === 'player') requestAnimationFrame(positionSpeech);
+});
+document.addEventListener('click', e => {
+  if (e.target.closest('#storyTools button, #storyTools a')) $('storyTools').open = false;
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') $('storyTools').open = false;
+});
 $('prevSpeech').onclick = () => { speechIndex = Math.max(0, speechIndex - 1); renderPlay(); };
 $('nextSpeech').onclick = () => { speechIndex = Math.min(speechFrames.length - 1, speechIndex + 1); renderPlay(); };
 $('editBtn').onclick = () => edit(); $('playBtn').onclick = () => { view('player'); renderPlay(); };
@@ -452,21 +503,29 @@ $('modelForm').onsubmit = async e => {
   e.preventDefault();
   try { await api('/model', {method:'PUT', body:JSON.stringify({host:$('modelHost').value, model:$('modelId').value, api_key:$('modelKey').value})}); $('modelKey').value = ''; $('modelDialog').close(); notice('聊天模型已儲存'); } catch (err) { notice(err.message); }
 };
-$('restartBtn').onclick = async () => { if (story?.id && confirm('重新開始會建立新的遊玩紀錄；確定嗎？')) await mutateSession(() => api('/stories/' + story.id + '/sessions', {method:'POST'})); };
+$('restartBtn').onclick = () => { if (story?.id && !busy) openOpening(); };
+$('actionBtn').onclick = () => {
+  const input = $('chatInput'), start = input.selectionStart, end = input.selectionEnd;
+  const action = input.value.slice(start, end) || '動作或行為';
+  input.setRangeText('*' + action + '*', start, end, 'end');
+  input.focus(); input.setSelectionRange(start + 1, start + 1 + action.length);
+  renderInputPreview();
+};
+$('chatInput').addEventListener('input', renderInputPreview);
 $('chatForm').onsubmit = async e => {
   e.preventDefault(); if (!session || busy || offline) return;
   const text = $('chatInput').value.trim(); if (!text) return;
   const previous = pendingPlayer?.sessionId === session.id && pendingPlayer.text === text ? pendingPlayer : null;
   pendingPlayer = {sessionId: session.id, text, state:'sending', request:previous?.request || worldEvent({text})};
   let completed = false;
-  busy = true; $('chatInput').blur(); $('chatInput').value = ''; $('sendBtn').textContent = '故事推進中…'; view(mode); renderPlay();
+  busy = true; $('chatInput').blur(); $('chatInput').value = ''; renderInputPreview(); $('sendBtn').textContent = '故事推進中…'; view(mode); renderPlay();
   try { session = await api('/stories/' + story.id + '/sessions/' + session.id + '/turn', {method:'POST', body:JSON.stringify(pendingPlayer.request)}); pendingPlayer = null; completed = true; saveSnapshot(); }
   catch (err) {
     if (story.world) { try { session = await api('/stories/' + story.id + '/sessions/' + session.id); if (session.world_state.accepted_event_ids.includes(pendingPlayer.request.event_id)) { pendingPlayer = null; completed = true; saveSnapshot(); } else if (err.status === 409) pendingPlayer.request.base_revision = session.world_state.revision; } catch { /* Keep the same request ID for a retry. */ } }
     if (pendingPlayer) { pendingPlayer.state = 'failed'; $('chatInput').value = text; notice(err.message); }
   }
   finally {
-    busy = false; $('sendBtn').textContent = '送出'; view(mode); renderPlay();
+    busy = false; $('sendBtn').textContent = '送出'; renderInputPreview(); view(mode); renderPlay();
     if (completed) requestAnimationFrame(() => {
       const response = $('speechBubble').hidden ? $('stageNote') : $('speechBubble');
       response.scrollIntoView({block:'start', behavior:matchMedia('(prefers-reduced-motion:reduce)').matches ? 'auto' : 'smooth'});
@@ -474,11 +533,54 @@ $('chatForm').onsubmit = async e => {
   }
 };
 $('reloadBtn').onclick = () => location.reload();
-$('signOutBtn').onclick = () => {
+$('signOutBtn').onclick = async () => {
   if (busy || !confirm('切換帳號會清除此裝置保存的離線閱讀資料，服務端故事仍會保留。')) return;
+  try { await fetch('/api/auth/logout', {method:'POST', headers:token ? {Authorization:'Bearer ' + token} : {}}); } catch { /* Clear this browser even when disconnected. */ }
   forgetOffline(); try { localStorage.removeItem('miru_auth_token'); } catch { /* Storage unavailable. */ }
   token = ''; location.href = '/login?next=s-chat';
 };
+function fullscreenAppMode() {
+  return matchMedia('(display-mode: fullscreen)').matches;
+}
+function syncFullscreenButton() {
+  const active = !!document.fullscreenElement || fullscreenAppMode();
+  $('fullscreenBtn').textContent = fullscreenAppMode() && !document.fullscreenElement ? '已全螢幕' : active ? '離開全螢幕' : '全螢幕';
+  $('fullscreenBtn').setAttribute('aria-pressed', String(active));
+  $('fullscreenBtn').disabled = fullscreenAppMode() && !document.fullscreenElement;
+}
+async function enterFullscreen(showHint = true) {
+  if (document.fullscreenElement || fullscreenAppMode()) return true;
+  if (typeof document.documentElement.requestFullscreen !== 'function' || document.fullscreenEnabled === false) {
+    if (showHint) notice('請用「安裝到手機」加入主畫面，再從 S. Chat 圖示開啟；此瀏覽器無法直接切換全螢幕。');
+    return false;
+  }
+  try {
+    await document.documentElement.requestFullscreen({navigationUI:'hide'});
+    return true;
+  } catch {
+    if (showHint) notice('全螢幕未能開啟，請再點一次「全螢幕」；也可從手機主畫面開啟。');
+    return false;
+  }
+}
+let triedAutoFullscreen = false;
+$('fullscreenBtn').onclick = async () => {
+  triedAutoFullscreen = true;
+  if (document.fullscreenElement) {
+    try { await document.exitFullscreen(); } catch { notice('請使用瀏覽器的返回或離開全螢幕操作。'); }
+  } else await enterFullscreen();
+  syncFullscreenButton();
+};
+document.addEventListener('pointerup', event => {
+  if (triedAutoFullscreen || mode !== 'player' || !matchMedia('(pointer: coarse)').matches ||
+      !event.target?.closest?.('#stage') || typeof document.documentElement.requestFullscreen !== 'function') return;
+  triedAutoFullscreen = true;
+  // Request within the first deliberate tap; never fight a later user exit.
+  void enterFullscreen(false);
+});
+document.addEventListener('fullscreenchange', () => {
+  syncFullscreenButton();
+  if (mode === 'player') requestAnimationFrame(renderPlay);
+});
 window.addEventListener('offline', () => setOffline(true));
 window.addEventListener('resize', () => { if (mode === 'player') renderPlay(); });
 window.addEventListener('online', () => notice('網路已恢復，按「重新連線」取得最新紀錄。'));
@@ -493,7 +595,8 @@ async function initialize() {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
     cacheScope = 'schat-offline:' + Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, '0')).join('') + ':';
   }
-  $('installBtn').hidden = matchMedia('(display-mode: standalone)').matches;
+  $('installBtn').hidden = matchMedia('(display-mode: standalone)').matches || fullscreenAppMode() || navigator.standalone === true;
+  syncFullscreenButton();
   if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('/s-chat/service-worker.js', {scope:'/s-chat'}).catch(() => notice('離線閱讀尚未啟用；連線時仍可正常遊玩。'));
   }

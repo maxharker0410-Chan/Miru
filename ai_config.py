@@ -507,7 +507,7 @@ def ping_tier(tier: str, timeout_seconds: int = 15) -> dict:
             ],
         }]
 
-    from prompt import _vendor_extra_body
+    from story_model import vendor_extra_body as _vendor_extra_body
     candidates = _openai_base_url_candidates(cfg["host"])
     t0 = time.time()
     for index, base_url in enumerate(candidates):

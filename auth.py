@@ -371,7 +371,7 @@ def get_admin_token() -> str:
     os.makedirs(_BASE_DATA_DIR, exist_ok=True)
     with open(_legacy_auth_path(), "w") as f:
         json.dump({"token": token, "created_at": datetime.now().isoformat()}, f)
-    print(f"[Auth] Generated admin token: {token[:8]}...")
+    # Credentials are never printed.
     return token
 
 
@@ -818,11 +818,6 @@ def suspend_user(user_id: str) -> bool:
     _cleanup_user_singletons(user_id)
 
     # Disconnect any live SSE streams for this user
-    try:
-        import sse
-        sse.disconnect_user(user_id)
-    except Exception as e:
-        print(f"[auth.suspend_user] SSE disconnect failed (non-fatal): {e}")
 
     return True
 
@@ -1045,11 +1040,6 @@ def delete_user(user_id: str, reason: str = "user_self_delete") -> dict:
     # keeps reading/writing the directory while rmtree is running.
     _cleanup_user_singletons(user_id)
 
-    try:
-        import sse
-        sse.disconnect_user(user_id)
-    except Exception as e:
-        print(f"[auth.delete_user] SSE disconnect failed (non-fatal): {e}")
 
     bytes_freed = _dir_size_bytes(user_dir)
     try:
@@ -1101,92 +1091,8 @@ def delete_user(user_id: str, reason: str = "user_self_delete") -> dict:
 
 
 def _cleanup_user_singletons(user_id: str) -> None:
-    """Drop any cached per-user instances for a deleted/suspended user.
-
-    Every module that keeps _instances: dict[user_id, X] gets a chance to
-    forget this user. Wrapped in try/except since modules may not be loaded.
-
-    Modules with daemon threads/timers (curator, attention_engine, care_engine, sleep_agent)
-    need an explicit stop/cancel call BEFORE pop — plain pop() leaves the
-    thread orphaned. The thread keeps reading the (just-deleted) user_data_dir
-    every tick and crashes silently. Probe-tested 2026-05-09: pre-fix,
-    care_engine._stop_event remained False and sleep_agent._timer remained
-    alive after _cleanup_user_singletons returned.
-    """
-    import sys
-
-    # 2026-05-09 [P1 fix]: stop daemon thread + cancel timer BEFORE pop
-    # so the thread sees the stop_event/cancelled timer and exits cleanly.
-
-    # AttentionEngine: signal stop_event so the daemon's wait returns ASAP.
-    try:
-        att_mod = sys.modules.get("attention_engine")
-        if att_mod is not None:
-            remover = getattr(att_mod, "remove_attention_engine", None)
-            if callable(remover):
-                remover(user_id)
-            else:
-                inst = getattr(att_mod, "_instances", {}).get(user_id)
-                if inst is not None and hasattr(inst, "stop"):
-                    inst.stop()
-    except Exception as e:
-        print(f"[auth._cleanup_user_singletons] AttentionEngine stop failed: {e}")
-
-    # CareEngine: legacy stop path for old in-process instances.
-    try:
-        ce_mod = sys.modules.get("care_engine")
-        if ce_mod is not None:
-            inst = getattr(ce_mod, "_instances", {}).get(user_id)
-            if inst is not None and hasattr(inst, "stop"):
-                inst.stop()
-    except Exception as e:
-        print(f"[auth._cleanup_user_singletons] CareEngine stop failed: {e}")
-
-    # SleepAgent + ScreenSleepAgent: cancel pending timers / drop queued
-    # screenshots so no late LLM flush fires after user logout. Screen-side
-    # drop is acceptable (losing 0-7 observations is fine; see policy).
-    try:
-        sa_mod = sys.modules.get("sleep_agent")
-        if sa_mod is not None:
-            inst = getattr(sa_mod, "_instances", {}).get(user_id)
-            if inst is not None and hasattr(inst, "_cancel_timer"):
-                inst._cancel_timer()
-        # screen_sleep_agent removed 2026-05-16; replaced by per-screenshot
-        # async fork in screen_analyzer.analyze — no per-user instance to clean.
-    except Exception as e:
-        print(f"[auth._cleanup_user_singletons] SleepAgent cancel failed: {e}")
-
-    # (module_name, attr_name) — attr is the per-user dict to pop from.
-    # 2026-05-08: character uses _configs not _instances; previously
-    # listed under _instances which silently no-op'd → cached old user's
-    # config + soul.md text would linger across user changes. model_library
-    # has no per-user dict (kept for future-proofing; getattr None-safe).
-    module_instance_dicts = [
-        ("miru_emotion",    "_instances"),
-        ("care_engine",     "_instances"),
-        ("screen_analyzer", "_instances"),
-        ("sleep_agent",     "_instances"),   # 2026-05-07 fix: was missing → leaked
-        ("character",       "_configs"),     # 2026-05-08 fix: attr name was wrong
-        ("model_library",   "_instances"),   # no-op today; future-proof
-    ]
-    for mod_name, attr in module_instance_dicts:
-        mod = sys.modules.get(mod_name)
-        if mod is None:
-            continue
-        d = getattr(mod, attr, None)
-        if isinstance(d, dict):
-            d.pop(user_id, None)
-
-    # 2026-05-08: Curator daemon thread — needs stop_event, not just pop.
-    # Without this, suspend_user / delete_user left the curator thread
-    # running, which kept reading the (now-deleted) user_data_dir each
-    # minute and re-running LLM cleanup on a suspended user's slots.
-    try:
-        curator_mod = sys.modules.get("curator")
-        if curator_mod is not None and hasattr(curator_mod, "stop_loop_for_user"):
-            curator_mod.stop_loop_for_user(user_id)
-    except Exception as e:
-        print(f"[auth._cleanup_user_singletons] curator stop failed (non-fatal): {e}")
+    """S.Chat has no per-user companion daemons or shared NPC-memory cache."""
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1194,32 +1100,10 @@ def _cleanup_user_singletons(user_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 _EXEMPT_PREFIXES = (
-    "/s-chat/",
-    "/_page/",
-    "/assets/",
-    "/icon-",
-    "/favicon",
-    "/manifest.json",
-    "/service-worker.js",
-    "/apple-touch-icon",
-    "/api/auth/login",
-    "/api/auth/logout",
-    "/api/client-config",
-    "/api/client/local/start",
-    "/api/client/provision/",
-    # Public liveness probe — used by docker compose health checks and
-    # integration tests. No data access, no auth required.
-    "/api/health",
-    # Admin web UI shell — token check happens client-side then via
-    # POST /api/admin/auth/verify. The HTML itself is harmless.
-    "/admin",
-    # APK update channel: version metadata + binary download.
-    # Both endpoints must be reachable pre-login so the updater works even
-    # after a session expires.
-    "/api/app/",
-    "/downloads/",
-    "/privacy",
+    "/s-chat/", "/assets/", "/api/auth/login", "/api/auth/logout",
+    "/api/client-config", "/api/client/local/start", "/api/health",
 )
+
 
 
 def is_local_request(req=None) -> bool:
@@ -1269,7 +1153,7 @@ def check_request(req=None):
     # /app      → web app shell with login screen (anonymous; client JS handles token)
     # /login    → DMG invitation code entry page (anonymous; POSTs to /api/auth/login)
     # /pet      → desktop pet shell (auth handled by URL token param)
-    if path in ("/", "/app", "/s-chat", "/login", "/pet", "/privacy") or any(path.startswith(p) for p in _EXEMPT_PREFIXES):
+    if path in ("/", "/app", "/s-chat", "/login") or any(path.startswith(p) for p in _EXEMPT_PREFIXES):
         _set_anonymous_context()
         return None
 

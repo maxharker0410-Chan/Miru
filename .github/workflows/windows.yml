@@ -1,0 +1,27 @@
+name: S.Chat Windows
+on:
+  pull_request:
+  push:
+    branches: [feature/schat-sandbox-v1-1]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements.txt pyinstaller
+      - run: python -m pytest -q
+      - run: node --test tests/schat_library_checks.cjs tests/schat_speech_checks.cjs
+      - run: python -m PyInstaller schat_windows.spec --noconfirm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: S.Chat-Windows-x64
+          path: dist/S.Chat/

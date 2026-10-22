@@ -230,6 +230,33 @@ def narrative_turn(imported, text, direction, actor=None):
         event_id='narrative_' + str(current['world_state']['revision']), base_revision=current['world_state']['revision'])
 
 
+def test_blocked_route_clears_an_earlier_travel_proposal(imported):
+    apply(imported, 'arrive', character_id='char_06_rune')
+    planned = narrative_turn(imported, '明天想去圖書館。', {
+        'next_scene_id':'loc_02_library', 'travel_status':'proposed', 'present_ids':['char_06_rune']})
+    assert planned['world_state']['pending_travel']
+    seen = []
+    blocked = narrative_turn(imported, '通道已封閉，不能前往。', {
+        'travel_allowed':False, 'present_ids':['char_06_rune']}, lambda payload: seen.append(payload) or {'text':'先留在公會。'})
+    assert blocked['scene_id'] == planned['scene_id']
+    assert blocked['world_state']['pending_travel'] is None
+    assert seen[0]['pending_travel'] is None
+
+
+def test_world_character_recalls_old_own_memory_after_many_experiences(imported):
+    root, story, initial = imported
+    current = apply(imported, 'arrive', character_id='char_06_rune')
+    current['memories']['char_06_rune'] = ['我答應保管銀色鑰匙。'] + [f'日常見聞{i}' for i in range(50)]
+    current['memories']['char_03_guild_head'] = ['另一人的銀色鑰匙秘密']
+    engine._write(engine._session_path(root, story['id'], initial['id']), current)
+    seen = []
+    narrative_turn(imported, '你還記得銀色鑰匙嗎？', {'present_ids':['char_06_rune']},
+        lambda payload: seen.append(payload) or {'text':'我記得。'})
+    assert seen[0]['your_private_memory'][0] == '我答應保管銀色鑰匙。'
+    assert len(seen[0]['your_private_memory']) == 20
+    assert '另一人的銀色鑰匙秘密' not in json.dumps(seen, ensure_ascii=False)
+
+
 def test_narrative_arrival_moves_background_companion_and_resume_together(imported):
     root, story, initial = imported
     apply(imported, 'arrive', character_id='char_06_rune')

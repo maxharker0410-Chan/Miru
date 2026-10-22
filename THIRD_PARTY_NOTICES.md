@@ -1,33 +1,9 @@
-# Third-Party Notices
+# Third Party Notices
 
-Miru's own source code is licensed under the Apache License 2.0. Miru also
-integrates third-party libraries and assets which remain under their own
-licenses and are not covered by Miru's Apache-2.0 license.
+S.Chat is derived from Miru. Original source and retained modifications are provided under the Apache License 2.0; see LICENSE. Existing copyright and attribution notices remain in the Git history and retained source.
 
-## Live2D Cubism
+Python, Flask, Werkzeug, Flask-Compress, Pillow, OpenAI Python SDK, HTTPX, Requests, Waitress, qrcode, pywebview, pythonnet and their transitive dependencies retain their upstream licenses. Frozen distributions include dependency license files supplied by their packaging hooks.
 
-The released desktop and Android applications use Live2D Cubism components
-and the Hiyori Momose sample model. The following files are intentionally not
-included in Miru's public source archive:
+This S.Chat-only build does not ship Live2D Cubism, its sample models, the desktop pet, native Android/Tauri renderers, screenshot capture, or the associated demonstration artwork. The earlier Miru distribution's licenses do not grant rights to redistribute separately licensed components.
 
-- Live2D Cubism Core for Web
-- Live2D Cubism Core for Native
-- Live2D Cubism Native Framework
-- Hiyori Momose sample model data
-
-Developers who want to build the desktop pet or Android Live2D renderer must
-obtain the matching components from Live2D and accept the applicable terms:
-
-- Live2D Open Software License Agreement
-- Live2D Proprietary Software License Agreement
-- Live2D Free Material License Agreement
-- Terms of Use for Live2D Cubism Sample Data
-
-See `docs/BUILDING.md` for the required local paths. Do not assume that Miru's
-Apache-2.0 license grants rights to redistribute these components or assets.
-
-## Other dependencies
-
-Python, Rust, Node, Android, and bundled JavaScript dependencies retain the
-licenses declared by their upstream projects. Dependency manifests are kept in
-the repository so their exact license texts can be inspected upstream.
+User-supplied stories, pictures and ZIP archives are not part of the source distribution and remain subject to their authors' terms.

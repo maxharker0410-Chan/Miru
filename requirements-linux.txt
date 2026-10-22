@@ -1,3 +1,0 @@
--r requirements.txt
-pywebview[pyside6]>=6.2.1,<7
-python-xlib>=0.33

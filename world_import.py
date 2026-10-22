@@ -48,9 +48,10 @@ class Package:
         if len(entries) > 2048 or sum(i.file_size for i in entries) > MAX_EXPANDED:
             fail('ZIP 展開容量或檔案數量超過限制。')
         for info in entries:
-            path = PurePosixPath(info.filename)
-            if (path.is_absolute() or '..' in path.parts or '\\' in info.filename
-                    or ':' in info.filename or '\x00' in info.filename
+            original = info.orig_filename
+            path = PurePosixPath(original)
+            if (path.is_absolute() or '..' in path.parts or '\\' in original
+                    or ':' in original or '\x00' in original
                     or stat.S_ISLNK(info.external_attr >> 16) or info.flag_bits & 1):
                 fail('ZIP 含有不安全路徑、連結或加密檔案。')
             if info.is_dir():

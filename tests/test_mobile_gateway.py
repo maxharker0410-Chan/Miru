@@ -114,6 +114,9 @@ def test_gateway_and_real_story_api_keep_data_in_paired_users_scope(tmp_path, mo
     monkeypatch.setattr(app, '_client_mode_config', {'user_id':'u_phonetest', 'auth_token':'internal-only'})
     gateway = MobileGateway(app.app, 'pair-test', 'phone-only', 'internal-only')
     client = Client(gateway, Response)
+    style = client.get('/assets/css/schat-stage.css')
+    assert style.status_code == 200 and style.mimetype == 'text/css'
+    assert client.get('/assets/css/private-config.css').status_code == 404
     assert client.get('/api/schat/stories').status_code == 401
     paired = client.post('/mobile/pair',json={'pairing_code':'pair-test'})
     assert paired.status_code == 200

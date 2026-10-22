@@ -9,6 +9,9 @@ from urllib.parse import parse_qs
 from werkzeug.wrappers import Request, Response
 
 PUBLIC = {'/s-chat', '/s-chat/manifest.json', '/s-chat/service-worker.js', '/assets/js/schat-library.js',
+          '/assets/js/schat-sandbox.js',
+          '/assets/css/schat-stage.css',
+          '/assets/brand/schat-icon.png',
           '/assets/js/schat.js', '/assets/brand/schat-pwa-192.png',
           '/assets/brand/schat-pwa-512.png'}
 PAGE = '''<!doctype html><html lang="zh-Hant"><meta charset="utf-8">
